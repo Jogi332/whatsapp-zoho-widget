@@ -265,6 +265,16 @@ ZOHO.embeddedApp.on('PageLoad',function(data){
     if(phone){loadConversation(phone);}else{renderStatus('No phone number on this record.');}
   }).catch(function(){renderStatus('Could not read record.');});
 });
+function showDebug(text){
+  var el = document.getElementById('debugBox');
+  if(!el){
+    el = document.createElement('pre');
+    el.id = 'debugBox';
+    el.style.cssText = 'white-space:pre-wrap;word-break:break-all;background:#111;color:#0f0;font-size:11px;padding:8px;max-height:200px;overflow:auto;border-top:2px solid red;';
+    document.getElementById('chat-root').appendChild(el);
+  }
+  el.textContent = text;
+}
 function pausePolling(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
 }
@@ -285,13 +295,12 @@ document.getElementById('sendBtn').addEventListener('click',function(){
   pausePolling();
   sendFreeTextMessage(currentPhone, text).then(function(resp){
     var data=safeParse(resp);
-    alert('DEBUG raw response: ' + JSON.stringify(resp).slice(0,1800));
+    showDebug('RAW RESPONSE: ' + JSON.stringify(resp).slice(0,3000));
     var failed = data && (data.status_code >= 400 || data.error || (data.body && safeParse(data.body) && safeParse(data.body).error));
     btn.disabled=false;
     btn.textContent=prevLabel;
     resumePolling();
     if(failed){
-      alert('Could not send message. This customer may be outside the 24-hour reply window — use an approved template instead.');
       return;
     }
     input.value='';
@@ -300,8 +309,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
     btn.disabled=false;
     btn.textContent=prevLabel;
     resumePolling();
-    alert('DEBUG catch error: ' + JSON.stringify(err).slice(0,1800));
-    alert('Could not send message. This customer may be outside the 24-hour reply window — use an approved template instead.');
+    showDebug('CATCH ERROR: ' + JSON.stringify(err).slice(0,3000));
   });
 });
 ZOHO.embeddedApp.init();
