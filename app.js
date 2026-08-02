@@ -285,6 +285,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
   pausePolling();
   sendFreeTextMessage(currentPhone, text).then(function(resp){
     var data=safeParse(resp);
+    alert('DEBUG raw response: ' + JSON.stringify(resp).slice(0,1800));
     var failed = data && (data.status_code >= 400 || data.error || (data.body && safeParse(data.body) && safeParse(data.body).error));
     btn.disabled=false;
     btn.textContent=prevLabel;
@@ -299,6 +300,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
     btn.disabled=false;
     btn.textContent=prevLabel;
     resumePolling();
+    alert('DEBUG catch error: ' + JSON.stringify(err).slice(0,1800));
     alert('Could not send message. This customer may be outside the 24-hour reply window — use an approved template instead.');
   });
 });
