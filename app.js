@@ -273,6 +273,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
   btn.textContent='Sending...';
   sendFreeTextMessage(currentPhone, text).then(function(resp){
     var data=safeParse(resp);
+    alert('DEBUG raw response: ' + JSON.stringify(resp).slice(0,1500));
     var failed = data && (data.status_code >= 400 || data.error || (data.body && safeParse(data.body) && safeParse(data.body).error));
     btn.disabled=false;
     btn.textContent=prevLabel;
@@ -282,9 +283,10 @@ document.getElementById('sendBtn').addEventListener('click',function(){
     }
     input.value='';
     fetchConversation(currentPhone, false);
-  }).catch(function(){
+  }).catch(function(err){
     btn.disabled=false;
     btn.textContent=prevLabel;
+    alert('DEBUG catch error: ' + JSON.stringify(err).slice(0,1500));
     alert('Could not send message. This customer may be outside the 24-hour reply window — use an approved template instead.');
   });
 });
