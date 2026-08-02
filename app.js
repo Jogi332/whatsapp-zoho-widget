@@ -232,11 +232,13 @@ document.getElementById('templateBtn').addEventListener('click', function(){
   btn.disabled = true;
   var prevLabel = btn.textContent;
   btn.textContent = 'Sending...';
+  pausePolling();
   sendTemplateMessage(currentPhone, rec).then(function(resp){
     var data = safeParse(resp);
     var failed = data && (data.status_code >= 400 || data.error);
     btn.disabled = false;
     btn.textContent = prevLabel;
+    resumePolling();
     if(failed){
       alert('Could not send template. Check the template configuration in the WhatsApp Templates module.');
       return;
@@ -247,6 +249,7 @@ document.getElementById('templateBtn').addEventListener('click', function(){
   }).catch(function(){
     btn.disabled = false;
     btn.textContent = prevLabel;
+    resumePolling();
     alert('Could not send template. Check the template configuration in the WhatsApp Templates module.');
   });
 });
@@ -262,6 +265,14 @@ ZOHO.embeddedApp.on('PageLoad',function(data){
     if(phone){loadConversation(phone);}else{renderStatus('No phone number on this record.');}
   }).catch(function(){renderStatus('Could not read record.');});
 });
+function pausePolling(){
+  if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
+}
+function resumePolling(){
+  if(!pollTimer && currentPhone){
+    pollTimer = setInterval(function(){ fetchConversation(currentPhone, false); }, POLL_INTERVAL_MS);
+  }
+}
 document.getElementById('sendBtn').addEventListener('click',function(){
   var input=document.getElementById('msgInput');
   var text=input.value.trim();
@@ -271,12 +282,13 @@ document.getElementById('sendBtn').addEventListener('click',function(){
   btn.disabled=true;
   var prevLabel=btn.textContent;
   btn.textContent='Sending...';
+  pausePolling();
   sendFreeTextMessage(currentPhone, text).then(function(resp){
     var data=safeParse(resp);
-    alert('DEBUG raw response: ' + JSON.stringify(resp).slice(0,1500));
     var failed = data && (data.status_code >= 400 || data.error || (data.body && safeParse(data.body) && safeParse(data.body).error));
     btn.disabled=false;
     btn.textContent=prevLabel;
+    resumePolling();
     if(failed){
       alert('Could not send message. This customer may be outside the 24-hour reply window — use an approved template instead.');
       return;
@@ -286,7 +298,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
   }).catch(function(err){
     btn.disabled=false;
     btn.textContent=prevLabel;
-    alert('DEBUG catch error: ' + JSON.stringify(err).slice(0,1500));
+    resumePolling();
     alert('Could not send message. This customer may be outside the 24-hour reply window — use an approved template instead.');
   });
 });
