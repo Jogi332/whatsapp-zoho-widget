@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WhatsApp Chat</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
+</head>
+<body>
+  <div id="chat-root">
+    <div id="messages"><div class="status">Loading conversation...</div></div>
+    <div id="composer">
+      <div id="templateRow">
+        <select id="templateSelect"><option value="">Send a template...</option></select>
+        <button id="templateBtn">Use template</button>
+      </div>
+      <div id="templateParams"></div>
+      <div id="composerRow">
+        <input id="msgInput" type="text" placeholder="Type a message" />
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
