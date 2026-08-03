@@ -121,7 +121,7 @@ function sendFreeTextMessage(phone, text){
   return ZOHO.CRM.HTTP.post({
     url: url,
     headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
-    body: body
+    body: JSON.stringify(body)
   });
 }
 var templatesById = {};
@@ -215,7 +215,7 @@ function sendTemplateMessage(phone, rec){
   return ZOHO.CRM.HTTP.post({
     url: url,
     headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
-    body: body
+    body: JSON.stringify(body)
   });
 }
 
