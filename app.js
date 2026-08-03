@@ -28,7 +28,7 @@ function renderMessages(list){
     if(m.time){
       var timeEl=document.createElement('div');
       timeEl.className='bubble-time';
-      timeEl.textContent=m.time;
+      timeEl.textContent=m.time+(m.direction==='out'?(m.status==='delivered'?' ✓✓':' ✓'):'');
       d.appendChild(timeEl);
     }
     el.appendChild(d);
@@ -71,7 +71,7 @@ function fetchConversation(phone, isInitial){
       return {
         direction: (m.sender === 'bot' ? 'out' : 'in'),
         text: m.response || m.text || '',
-        time: formatTimestamp(d), ts: d ? d.getTime() : 0
+        time: formatTimestamp(d), ts: d ? d.getTime() : 0, status: 'delivered'
       };
     });
     lastMappedMessages = mapped; renderMerged(isInitial); return;
@@ -243,7 +243,7 @@ document.getElementById('templateBtn').addEventListener('click', function(){
       alert('Could not send template. Check the template configuration in the WhatsApp Templates module.');
       return;
     }
-    localSentMessages.push({ direction:'out', text: '[Template] ' + (rec.Name || rec.Template_Name || ''), time: formatTimestamp(new Date()), ts: Date.now() }); showDebug('templateBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); select.value = '';
+    localSentMessages.push({ direction:'out', text: '[Template] ' + (rec.Name || rec.Template_Name || ''), time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('templateBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); select.value = '';
     document.getElementById('templateParams').innerHTML = '';
     fetchConversation(currentPhone, false);
   }).catch(function(){
@@ -303,7 +303,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
     if(failed){
       return;
     }
-    localSentMessages.push({ direction:'out', text: text, time: formatTimestamp(new Date()), ts: Date.now() }); showDebug('sendBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); input.value='';
+    localSentMessages.push({ direction:'out', text: text, time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('sendBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); input.value='';
     fetchConversation(currentPhone, false);
   }).catch(function(err){
     btn.disabled=false;
