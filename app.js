@@ -120,8 +120,8 @@ function sendFreeTextMessage(phone, text){
   };
   return ZOHO.CRM.HTTP.post({
     url: url,
-    headers: { "Authorization": "Basic " + ENGATI_API_KEY },
-    body: (function(){ showDebug('outgoing body (raw object, no content-type header): ' + JSON.stringify(body).slice(0,500)); return body; })()
+    headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
+    body: (function(){ showDebug('outgoing body (raw object, with content-type header): ' + JSON.stringify(body).slice(0,500)); return body; })()
   });
 }
 var templatesById = {};
@@ -214,8 +214,8 @@ function sendTemplateMessage(phone, rec){
   };
   return ZOHO.CRM.HTTP.post({
     url: url,
-    headers: { "Authorization": "Basic " + ENGATI_API_KEY },
-    body: (function(){ showDebug('outgoing body (raw object, no content-type header): ' + JSON.stringify(body).slice(0,500)); return body; })()
+    headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
+    body: (function(){ showDebug('outgoing body (raw object, with content-type header): ' + JSON.stringify(body).slice(0,500)); return body; })()
   });
 }
 
