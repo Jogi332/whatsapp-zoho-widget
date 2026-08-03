@@ -273,7 +273,7 @@ function showDebug(text){
     el.style.cssText = 'white-space:pre-wrap;word-break:break-all;background:#111;color:#0f0;font-size:11px;padding:8px;max-height:200px;overflow:auto;border-top:2px solid red;';
     document.getElementById('chat-root').appendChild(el);
   }
-  el.textContent = text;
+  el.textContent += (new Date()).toISOString().slice(11,19) + ' ' + text + String.fromCharCode(10); el.scrollTop = el.scrollHeight;
 }
 function pausePolling(){
   if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
