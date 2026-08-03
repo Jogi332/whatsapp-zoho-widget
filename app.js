@@ -121,7 +121,7 @@ function sendFreeTextMessage(phone, text){
   return ZOHO.CRM.HTTP.post({
     url: url,
     headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: (function(){ showDebug('outgoing body: ' + JSON.stringify(body).slice(0,500)); return JSON.stringify(body); })()
   });
 }
 var templatesById = {};
@@ -215,7 +215,7 @@ function sendTemplateMessage(phone, rec){
   return ZOHO.CRM.HTTP.post({
     url: url,
     headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: (function(){ showDebug('outgoing body: ' + JSON.stringify(body).slice(0,500)); return JSON.stringify(body); })()
   });
 }
 
@@ -235,7 +235,7 @@ document.getElementById('templateBtn').addEventListener('click', function(){
   pausePolling();
   sendTemplateMessage(currentPhone, rec).then(function(resp){
     var data = safeParse(resp);
-    var failed = data && (data.status_code >= 400 || data.error);
+    var failed = !!(data && ((data.status_code && data.status_code>=400) || (data.status && data.status>=400) || data.error || data.type==='about:blank'));
     btn.disabled = false;
     btn.textContent = prevLabel;
     resumePolling();
@@ -296,7 +296,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
   sendFreeTextMessage(currentPhone, text).then(function(resp){
     var data=safeParse(resp);
     showDebug('RAW RESPONSE: ' + JSON.stringify(resp).slice(0,3000));
-    var failed = data && (data.status_code >= 400 || data.error || (data.body && safeParse(data.body) && safeParse(data.body).error));
+    var failed = !!(data && ((data.status_code && data.status_code>=400) || (data.status && data.status>=400) || data.error || data.type==='about:blank' || (data.body && safeParse(data.body) && (safeParse(data.body).error || (safeParse(data.body).status && safeParse(data.body).status>=400)))));
     btn.disabled=false;
     btn.textContent=prevLabel;
     resumePolling();
