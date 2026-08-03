@@ -46,7 +46,7 @@ var POLL_INTERVAL_MS = 2000;
 var currentPhone = null;var lastMappedMessages = [];var localSentMessages = [];
 var ENGATI_CUSTOMER_ID = "112609";
 var ENGATI_BOT_ID = "41e497d0ee1d46b6";
-var ENGATI_API_KEY = "37a3db0a-626c-4f36-bbc1-833d5b1d7bf5-IMqeVqx";
+var ENGATI_API_KEY = "37a3db0a-626c-4f36-bbc1-833d5b1d7bf5-IMqeVqx"; var CATALYST_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/whatsappProxy/";
 
 function renderMerged(isInitial){ localSentMessages = localSentMessages.filter(function(lm){ return !lastMappedMessages.some(function(sm){ return sm.direction==='out' && sm.text===lm.text; }); }); var merged = lastMappedMessages.concat(localSentMessages).sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); var signature2 = JSON.stringify(merged); showDebug('renderMerged: mapped='+lastMappedMessages.length+' local='+localSentMessages.length+' merged='+merged.length+' sigChanged='+(signature2!==lastSignature)); if(signature2 === lastSignature){ return; } var el2 = document.getElementById('messages'); var wasNearBottom2 = isInitial || isNearBottom(el2); lastSignature = signature2; renderMessages(merged); if(!wasNearBottom2){ el2.scrollTop = el2.scrollHeight - el2.clientHeight - 60; } } function isNearBottom(el){
   return (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
@@ -58,7 +58,7 @@ function fetchConversation(phone, isInitial){
     url: url,
     headers: { "Authorization": "Basic " + ENGATI_API_KEY }
   }).then(function(resp){
-    var data = safeParse(resp);
+    var data = safeParse(resp); showDebug('TEMPLATE PROXY RESPONSE: ' + JSON.stringify(resp).slice(0,1000));
     if(!data || data.error){
       if(isInitial){ renderStatus('Could not load conversation.'); }
       return;
@@ -207,7 +207,7 @@ function buildTemplatePayload(rec){
 }
 
 function sendTemplateMessage(phone, rec){
-  var url = "https://api.engati.ai/whatsapp-api/v1.0/customer/" + ENGATI_CUSTOMER_ID + "/bot/" + ENGATI_BOT_ID + "/template";
+  var url = "https://api.engati.ai/whatsapp-api/v1.0/customer/" + ENGATI_CUSTOMER_ID + "/bot/" + ENGATI_BOT_ID + "/template"; return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); });
   var body = {
     phoneNumber: '+' + phone,
     payload: buildTemplatePayload(rec)
@@ -219,7 +219,7 @@ function sendTemplateMessage(phone, rec){
   });
 }
 
-document.getElementById('templateSelect').addEventListener('change', function(){
+function sendTemplateViaProxy(phone, rec){ return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); }); } document.getElementById('templateSelect').addEventListener('change', function(){
   var rec = templatesById[this.value];
   renderTemplateParams(rec);
 });
@@ -233,9 +233,9 @@ document.getElementById('templateBtn').addEventListener('click', function(){
   var prevLabel = btn.textContent;
   btn.textContent = 'Sending...';
   pausePolling();
-  sendTemplateMessage(currentPhone, rec).then(function(resp){
+  sendTemplateViaProxy(currentPhone, rec).then(function(resp){
     var data = safeParse(resp);
-    var failed = !!(data && ((data.status_code && data.status_code>=400) || (data.status && data.status>=400) || data.error || data.type==='about:blank'));
+    var inner = data && safeParse(data.body); var failed = !(data && data.statusCode === 200 && inner && inner.status && inner.status.code === 1000);
     btn.disabled = false;
     btn.textContent = prevLabel;
     resumePolling();
