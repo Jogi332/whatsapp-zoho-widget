@@ -43,12 +43,12 @@ function normalizePhone(phone){
 var pollTimer = null;
 var lastSignature = null;
 var POLL_INTERVAL_MS = 2000;
-var currentPhone = null;
+var currentPhone = null;var lastMappedMessages = [];var localSentMessages = [];
 var ENGATI_CUSTOMER_ID = "112609";
 var ENGATI_BOT_ID = "41e497d0ee1d46b6";
 var ENGATI_API_KEY = "37a3db0a-626c-4f36-bbc1-833d5b1d7bf5-IMqeVqx";
 
-function isNearBottom(el){
+function renderMerged(isInitial){ localSentMessages = localSentMessages.filter(function(lm){ return !lastMappedMessages.some(function(sm){ return sm.direction==='out' && sm.text===lm.text; }); }); var merged = lastMappedMessages.concat(localSentMessages).sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); var signature2 = JSON.stringify(merged); if(signature2 === lastSignature){ return; } var el2 = document.getElementById('messages'); var wasNearBottom2 = isInitial || isNearBottom(el2); lastSignature = signature2; renderMessages(merged); if(!wasNearBottom2){ el2.scrollTop = el2.scrollHeight - el2.clientHeight - 60; } } function isNearBottom(el){
   return (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
 }
 
@@ -71,10 +71,10 @@ function fetchConversation(phone, isInitial){
       return {
         direction: (m.sender === 'bot' ? 'out' : 'in'),
         text: m.response || m.text || '',
-        time: formatTimestamp(d)
+        time: formatTimestamp(d), ts: d ? d.getTime() : 0
       };
     });
-    var signature = JSON.stringify(mapped);
+    lastMappedMessages = mapped; renderMerged(isInitial); return;
     if(signature === lastSignature){ return; }
     var el = document.getElementById('messages');
     var wasNearBottom = isInitial || isNearBottom(el);
@@ -243,7 +243,7 @@ document.getElementById('templateBtn').addEventListener('click', function(){
       alert('Could not send template. Check the template configuration in the WhatsApp Templates module.');
       return;
     }
-    select.value = '';
+    localSentMessages.push({ direction:'out', text: '[Template] ' + (rec.Name || rec.Template_Name || ''), time: formatTimestamp(new Date()), ts: Date.now() }); renderMerged(false); select.value = '';
     document.getElementById('templateParams').innerHTML = '';
     fetchConversation(currentPhone, false);
   }).catch(function(){
@@ -303,7 +303,7 @@ document.getElementById('sendBtn').addEventListener('click',function(){
     if(failed){
       return;
     }
-    input.value='';
+    localSentMessages.push({ direction:'out', text: text, time: formatTimestamp(new Date()), ts: Date.now() }); renderMerged(false); input.value='';
     fetchConversation(currentPhone, false);
   }).catch(function(err){
     btn.disabled=false;
