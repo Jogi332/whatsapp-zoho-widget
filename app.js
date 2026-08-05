@@ -156,6 +156,7 @@ function loadTemplates(){
 var select = document.getElementById('templateSelect');
 return ZOHO.CRM.API.getAllRecords({Entity:'WhatsApp_Templates', sort_order:'asc', per_page:200}).then(function(res){
 var records = (res && res.data) || [];
+showDebug('loadTemplates: fetched '+records.length+' record(s)');
 templatesById = {};
 select.innerHTML = '<option value="">Send a template...</option>';
 records.forEach(function(rec){
@@ -168,7 +169,9 @@ opt.value = rec.id;
 opt.textContent = rec.Name || rec.Template_Name;
 select.appendChild(opt);
 });
+showDebug('loadTemplates: '+Object.keys(templatesById).length+' active template(s) added to dropdown');
 }).catch(function(err){
+showDebug('loadTemplates ERROR: '+((err&&(err.message||JSON.stringify(err)))||'unknown'));
 select.innerHTML = '<option value="">(templates error: '+((err&&(err.message||JSON.stringify(err)))||'unknown')+')</option>';
 });
 }
