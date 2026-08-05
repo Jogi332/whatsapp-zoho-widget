@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "targets": [
+      "liveChatSender"
+    ],
+    "ignore": [],
+    "source": "functions"
+  }
+}
