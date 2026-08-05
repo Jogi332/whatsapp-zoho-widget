@@ -2,11 +2,20 @@
 //
 // Sends AGENT_MESSAGE and RESOLVE_LIVE_CHAT packets to Engati's "Inbound
 // Message Webhook URL" - the system-generated URL Engati shows in
-// Configure > External Live Chat once the feature is enabled (it looks
-// like https://agents.engati.ai/livechat/webhook/<id>). This is the
+// Configure > External Live Chat once the feature is enabled. This is the
 // mechanism for an agent (our widget) to actually send replies once
 // External Live Chat is on - it replaces the old direct call to Engati's
 // /broadcast endpoint, which is permanently blocked without this add-on.
+//
+// MULTI-TENANT: this function is shared across all customers/Zoho orgs -
+// it does NOT hardcode any one customer's Engati credentials. Every
+// customer's Inbound Message Webhook URL, bot key, and optional inbound API
+// key are passed in on each request (sourced from that org's own Zoho CRM
+// Variables, same place ENGATI_CUSTOMER_ID/BOT_ID/API_KEY already live).
+// Widget-side wiring: app.js loadConfigFromVariables() reads
+// ENGATI_INBOUND_MESSAGE_WEBHOOK_URL (and ENGATI_INBOUND_API_KEY if set)
+// alongside the existing three variables, and sendFreeTextMessage() passes
+// them through on every call.
 //
 // Follows the exact same conventions as the real `whatsappProxy` function
 // (confirmed by reading its live source in the Catalyst console):
@@ -23,25 +32,22 @@
 //     in app.js)
 //
 // Expected POST body from the widget:
-//   { action: "sendAgentMessage", phone, text, media, platform, botKey, botIdentifier }
-//   { action: "resolveLiveChat", phone, platform, botKey, botIdentifier }
+//   {
+//     action: "sendAgentMessage" | "resolveLiveChat",
+//     phone,                            // channel-user id, see normalizePhone() in app.js
+//     inboundMessageWebhookUrl,         // REQUIRED - this org's Engati Inbound Message Webhook URL
+//     botKey,                           // REQUIRED - this org's Engati bot key
+//     inboundApiKey,                    // optional - this org's Inbound API key, if configured in Engati
+//     platform, botIdentifier,          // optional, default 'whatsapp' / ''
+//     text,                             // for sendAgentMessage: plain text
+//     media                             // for sendAgentMessage: { value: <url>, mimeType }
+//   }
 //
-// `phone`: same channel-user identifier used elsewhere in this project
-// (see normalizePhone() in app.js and the /channel-user/<id>/ path segment
-// in fetchConversation()).
-//
-// ENGATI_INBOUND_MESSAGE_WEBHOOK_URL is NOT known yet - External Live Chat
-// isn't enabled on the new bot (Customer ID 126125 / Bot Key
-// cce5df75e8bb4d41) as of writing this. Fill it in once Engati provides it
-// - either hardcode here (matching how whatsappProxy currently hardcodes
-// its Engati credentials) or read from a Catalyst env var / CRM Variable,
-// whichever this project ends up standardizing on.
+// whatsappProxy still hardcodes its one customer's credentials as of this
+// writing - revisit that separately if/when a second customer needs
+// template sending too. Don't assume it's already multi-tenant.
 
 const https = require('https');
-
-var ENGATI_INBOUND_MESSAGE_WEBHOOK_URL = ''; // fill in once Engati confirms and provides this
-var ENGATI_INBOUND_API_KEY = ''; // optional - only if one was set up in Engati's Configure screen
-var DEFAULT_BOT_KEY = 'cce5df75e8bb4d41'; // the new bot
 
 function readBody(req) {
   return new Promise(function (resolve) {
@@ -52,7 +58,7 @@ function readBody(req) {
   });
 }
 
-function engatiPost(urlString, payload) {
+function engatiPost(urlString, payload, inboundApiKey) {
   return new Promise(function (resolve) {
     var body = JSON.stringify(payload);
     var url = new URL(urlString);
@@ -60,8 +66,8 @@ function engatiPost(urlString, payload) {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body)
     };
-    if (ENGATI_INBOUND_API_KEY) {
-      headers['Authorization'] = 'Basic ' + ENGATI_INBOUND_API_KEY;
+    if (inboundApiKey) {
+      headers['Authorization'] = 'Basic ' + inboundApiKey;
     }
     var options = {
       hostname: url.hostname,
@@ -92,7 +98,6 @@ function inferPacketType(mimeType) {
 }
 
 module.exports = function (req, res) {
-  res.writeHead ? null : null;
   var headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -112,13 +117,22 @@ module.exports = function (req, res) {
 
     var action = input.action;
     var phone = input.phone;
+    var inboundMessageWebhookUrl = input.inboundMessageWebhookUrl;
+    var botKey = input.botKey;
+    var inboundApiKey = input.inboundApiKey || '';
 
-    if (!ENGATI_INBOUND_MESSAGE_WEBHOOK_URL) {
+    if (!inboundMessageWebhookUrl) {
       res.writeHead(200, headers);
       res.end(JSON.stringify({
         statusCode: 400,
-        body: JSON.stringify({ error: 'ENGATI_INBOUND_MESSAGE_WEBHOOK_URL not configured yet - External Live Chat not enabled' })
+        body: JSON.stringify({ error: 'inboundMessageWebhookUrl required - External Live Chat not configured for this org' })
       }));
+      return;
+    }
+
+    if (!botKey) {
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'botKey required' }) }));
       return;
     }
 
@@ -143,7 +157,7 @@ module.exports = function (req, res) {
         },
         platform: input.platform || 'whatsapp',
         userId: phone,
-        botKey: input.botKey || DEFAULT_BOT_KEY,
+        botKey: botKey,
         botIdentifier: input.botIdentifier || ''
       };
     } else if (action === 'resolveLiveChat') {
@@ -151,7 +165,7 @@ module.exports = function (req, res) {
         externalPacketType: 'RESOLVE_LIVE_CHAT',
         platform: input.platform || 'whatsapp',
         userId: phone,
-        botKey: input.botKey || DEFAULT_BOT_KEY,
+        botKey: botKey,
         botIdentifier: input.botIdentifier || ''
       };
     } else {
@@ -160,7 +174,7 @@ module.exports = function (req, res) {
       return;
     }
 
-    engatiPost(ENGATI_INBOUND_MESSAGE_WEBHOOK_URL, enginePacket).then(function (result) {
+    engatiPost(inboundMessageWebhookUrl, enginePacket, inboundApiKey).then(function (result) {
       res.writeHead(200, headers);
       res.end(JSON.stringify(result));
     });

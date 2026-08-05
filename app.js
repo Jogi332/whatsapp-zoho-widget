@@ -51,7 +51,10 @@ var currentPhone = null;var lastMappedMessages = [];var localSentMessages = [];
 var ENGATI_CUSTOMER_ID = null;
 var ENGATI_BOT_ID = null;
 var ENGATI_API_KEY = null;
+var ENGATI_INBOUND_MESSAGE_WEBHOOK_URL = null; // optional - only needed for free-text/attachments via External Live Chat
+var ENGATI_INBOUND_API_KEY = null; // optional - only if this org set one up in Engati's Configure screen
 var CATALYST_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/whatsappProxy/";
+var LIVE_CHAT_SENDER_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/liveChatSender/";
 var configReadyPromise = null;
 
 function loadConfigFromVariables(){
@@ -59,7 +62,9 @@ function loadConfigFromVariables(){
   configReadyPromise = Promise.all([
     ZOHO.CRM.API.getOrgVariable("ENGATI_CUSTOMER_ID"),
     ZOHO.CRM.API.getOrgVariable("ENGATI_BOT_ID"),
-    ZOHO.CRM.API.getOrgVariable("ENGATI_API_KEY")
+    ZOHO.CRM.API.getOrgVariable("ENGATI_API_KEY"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_INBOUND_MESSAGE_WEBHOOK_URL"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_INBOUND_API_KEY")
   ]).then(function(results){
     showDebug('getOrgVariable raw response[0]: ' + JSON.stringify(results[0]).slice(0,500));
     showDebug('getOrgVariable raw response[1]: ' + JSON.stringify(results[1]).slice(0,500));
@@ -67,6 +72,10 @@ function loadConfigFromVariables(){
     ENGATI_CUSTOMER_ID = (results[0] && results[0].Success && results[0].Success.Content) || null;
     ENGATI_BOT_ID = (results[1] && results[1].Success && results[1].Success.Content) || null;
     ENGATI_API_KEY = (results[2] && results[2].Success && results[2].Success.Content) || null;
+    // Optional - free-text/attachments simply stay unavailable (not a hard
+    // failure) if these aren't set for this org yet.
+    ENGATI_INBOUND_MESSAGE_WEBHOOK_URL = (results[3] && results[3].Success && results[3].Success.Content) || null;
+    ENGATI_INBOUND_API_KEY = (results[4] && results[4].Success && results[4].Success.Content) || null;
     if(!ENGATI_CUSTOMER_ID || !ENGATI_BOT_ID || !ENGATI_API_KEY){
       renderStatus('WhatsApp integration is not configured. Please set ENGATI_CUSTOMER_ID, ENGATI_BOT_ID and ENGATI_API_KEY under Setup > Developer Hub > Variables.');
       throw new Error('Missing configuration variables');
@@ -134,13 +143,15 @@ pollTimer = setInterval(function(){ fetchConversation(phone, false); }, POLL_INT
 // support ticket ES-58564. This function now goes through the AGENT_MESSAGE
 // path instead (see catalyst-functions/liveChatSender/), which is the
 // mechanism Engati's docs describe for that feature. It will fail until
-// External Live Chat is confirmed enabled AND liveChatSender is deployed -
-// that's expected right now, not a bug. Built ahead so it's ready to test
-// the moment Engati confirms.
-var LIVE_CHAT_SENDER_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/liveChatSender/";
-
+// External Live Chat is confirmed enabled for this org's bot AND this org
+// has set ENGATI_INBOUND_MESSAGE_WEBHOOK_URL - that's expected, not a bug,
+// for orgs that haven't set that up yet.
 function sendFreeTextMessage(phone, text, media){
-var body = { action: 'sendAgentMessage', phone: phone, botKey: ENGATI_BOT_ID };
+if(!ENGATI_INBOUND_MESSAGE_WEBHOOK_URL){
+return Promise.resolve(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'Free-text sending is not configured for this org. Set ENGATI_INBOUND_MESSAGE_WEBHOOK_URL under Setup > Developer Hub > Variables once Engati confirms External Live Chat is enabled.' }) }));
+}
+var body = { action: 'sendAgentMessage', phone: phone, botKey: ENGATI_BOT_ID, inboundMessageWebhookUrl: ENGATI_INBOUND_MESSAGE_WEBHOOK_URL };
+if(ENGATI_INBOUND_API_KEY){ body.inboundApiKey = ENGATI_INBOUND_API_KEY; }
 if(text){ body.text = text; }
 if(media && media.value){ body.media = { value: media.value, mimeType: media.mimeType }; }
 showDebug('sendAgentMessage outgoing body: ' + JSON.stringify(body).slice(0,500));
