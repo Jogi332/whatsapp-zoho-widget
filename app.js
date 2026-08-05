@@ -2,7 +2,7 @@ function renderStatus(t){document.getElementById('messages').innerHTML='<div cla
 function safeParse(r){try{return typeof r==='string'?JSON.parse(r):r;}catch(e){return null;}}
 function parseEngatiTimestamp(ts){
 if(!ts) return null;
-var iso = String(ts).replace(' ', 'T');
+var iso = String(ts).replace(/^(\d{4})\/(\d{2})\/(\d{2})/, '$1-$2-$3').replace(' ', 'T');
 iso = iso.replace(/T(\d{2}):(\d{2}):(\d{2}\.\d+)([+-]\d{4})$/, function(_, h, mi, s, tz){
 return 'T'+h+':'+mi+':'+s+tz.slice(0,3)+':'+tz.slice(3);
 });
