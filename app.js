@@ -28,15 +28,11 @@ d.appendChild(textEl);
 if(m.time){
 var timeEl=document.createElement('div');
 timeEl.className='bubble-time';
-if(m.direction==='out'){
 var tickEl=document.createElement('span');
 tickEl.className='ticks'+(m.status==='read'?' read':'');
 tickEl.textContent=(m.status==='sent'?' \u2713':' \u2713\u2713');
 timeEl.textContent=m.time;
 timeEl.appendChild(tickEl);
-} else {
-timeEl.textContent=m.time;
-}
 d.appendChild(timeEl);
 }
 el.appendChild(d);
