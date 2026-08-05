@@ -8,133 +8,80 @@
 // External Live Chat is on - it replaces the old direct call to Engati's
 // /broadcast endpoint, which is permanently blocked without this add-on.
 //
-// This follows the same request/response shape as the existing
-// `whatsappProxy` function's `sendTemplate` action (widget calls this via
-// fetch with a JSON body naming an `action`), so the widget's
-// `sendTemplateViaProxy()` pattern in app.js can be copied for these new
-// actions once this is deployed and wired up. Either merge this file's
-// logic into `whatsappProxy` as two new actions, or deploy it as a sibling
-// function - whichever matches your existing project layout.
+// Follows the exact same conventions as the real `whatsappProxy` function
+// (confirmed by reading its live source in the Catalyst console):
+//   - Advanced I/O, `module.exports = function(req, res) {...}`
+//   - raw `https` module for outbound calls - no npm dependencies at all,
+//     whatsappProxy's package.json has none, so don't assume fetch/
+//     node-fetch/axios are available. If you want them, add to
+//     package.json's "dependencies" and redeploy.
+//   - CORS headers + OPTIONS preflight handling
+//   - body read manually via a data/end listener, then JSON.parse
+//   - response shaped {statusCode, body} matching how app.js's
+//     safeParse(resp) / data.statusCode checks already expect proxy
+//     responses to look (see sendTemplateViaProxy() + templateBtn handler
+//     in app.js)
 //
 // Expected POST body from the widget:
 //   { action: "sendAgentMessage", phone, text, media, platform, botKey, botIdentifier }
 //   { action: "resolveLiveChat", phone, platform, botKey, botIdentifier }
 //
-// `phone`/`userId`: Engati's packets use `userId`, which for a WhatsApp
-// channel-user is the same identifier already used elsewhere in this
-// project (see `normalizePhone()` in app.js and the `/channel-user/<id>/`
-// path segment used by `fetchConversation()`).
+// `phone`: same channel-user identifier used elsewhere in this project
+// (see normalizePhone() in app.js and the /channel-user/<id>/ path segment
+// in fetchConversation()).
 //
 // ENGATI_INBOUND_MESSAGE_WEBHOOK_URL is NOT known yet - External Live Chat
 // isn't enabled on the new bot (Customer ID 126125 / Bot Key
-// cce5df75e8bb4d41) as of writing this. Fill it in as a Catalyst
-// environment variable (or CRM Variable, matching the existing
-// ENGATI_CUSTOMER_ID/BOT_ID/API_KEY pattern) once Engati provides it.
+// cce5df75e8bb4d41) as of writing this. Fill it in once Engati provides it
+// - either hardcode here (matching how whatsappProxy currently hardcodes
+// its Engati credentials) or read from a Catalyst env var / CRM Variable,
+// whichever this project ends up standardizing on.
 
-const fetch = require('node-fetch'); // or global fetch if your Catalyst Node runtime supports it
+const https = require('https');
 
-const INBOUND_MESSAGE_WEBHOOK_URL = process.env.ENGATI_INBOUND_MESSAGE_WEBHOOK_URL || '';
+var ENGATI_INBOUND_MESSAGE_WEBHOOK_URL = ''; // fill in once Engati confirms and provides this
+var ENGATI_INBOUND_API_KEY = ''; // optional - only if one was set up in Engati's Configure screen
+var DEFAULT_BOT_KEY = 'cce5df75e8bb4d41'; // the new bot
 
-module.exports = async (req, res) => {
-  let body = req.body;
-  if (typeof body === 'string') {
-    try { body = JSON.parse(body); } catch (e) { body = {}; }
-  }
-  body = body || {};
-
-  const action = body.action;
-
-  if (!INBOUND_MESSAGE_WEBHOOK_URL) {
-    res.status(200).send({
-      statusCode: 400,
-      body: JSON.stringify({ error: 'ENGATI_INBOUND_MESSAGE_WEBHOOK_URL not configured yet - External Live Chat not enabled' })
-    });
-    return;
-  }
-
-  if (action === 'sendAgentMessage') {
-    await handleAgentMessage(body, res);
-    return;
-  }
-
-  if (action === 'resolveLiveChat') {
-    await handleResolveLiveChat(body, res);
-    return;
-  }
-
-  res.status(200).send({ statusCode: 400, body: JSON.stringify({ error: 'unknown action: ' + action }) });
-};
-
-async function handleAgentMessage(body, res) {
-  const phone = body.phone;
-  const text = body.text; // plain string, for TEXT messages
-  const media = body.media; // { value: <url>, mimeType: <string> }, for IMAGE/AUDIO/VIDEO
-
-  if (!phone) {
-    res.status(200).send({ statusCode: 400, body: JSON.stringify({ error: 'phone required' }) });
-    return;
-  }
-
-  const packetType = media ? inferPacketType(media.mimeType) : 'TEXT';
-
-  const enginePacket = {
-    externalPacketType: 'AGENT_MESSAGE',
-    body: {
-      packetType: packetType,
-      text: text ? { value: text } : undefined,
-      media: media ? { value: media.value, mimeType: media.mimeType } : undefined,
-      timestamp: new Date().toISOString()
-    },
-    platform: body.platform || 'whatsapp',
-    userId: phone,
-    botKey: body.botKey || 'cce5df75e8bb4d41',
-    botIdentifier: body.botIdentifier || ''
-  };
-
-  await forwardToEngati(enginePacket, res);
+function readBody(req) {
+  return new Promise(function (resolve) {
+    var data = '';
+    req.on('data', function (chunk) { data += chunk; });
+    req.on('end', function () { resolve(data); });
+    req.on('error', function () { resolve(''); });
+  });
 }
 
-async function handleResolveLiveChat(body, res) {
-  const phone = body.phone;
-  if (!phone) {
-    res.status(200).send({ statusCode: 400, body: JSON.stringify({ error: 'phone required' }) });
-    return;
-  }
-
-  const enginePacket = {
-    externalPacketType: 'RESOLVE_LIVE_CHAT',
-    platform: body.platform || 'whatsapp',
-    userId: phone,
-    botKey: body.botKey || 'cce5df75e8bb4d41',
-    botIdentifier: body.botIdentifier || ''
-  };
-
-  await forwardToEngati(enginePacket, res);
-}
-
-async function forwardToEngati(enginePacket, res) {
-  try {
-    const headers = { 'Content-Type': 'application/json' };
-    // If an Inbound API key was set up in Engati's External Live Chat
-    // config, it needs to go here too, same as the check on the receiving
-    // side in liveChatWebhook - the doc's samples show it on the receiving
-    // side, but confirm whether Engati also expects it on packets we send
-    // to their Inbound Message Webhook URL once we're testing this live.
-    // if (process.env.ENGATI_INBOUND_API_KEY) {
-    //   headers['Authorization'] = 'Basic ' + process.env.ENGATI_INBOUND_API_KEY;
-    // }
-
-    const response = await fetch(INBOUND_MESSAGE_WEBHOOK_URL, {
+function engatiPost(urlString, payload) {
+  return new Promise(function (resolve) {
+    var body = JSON.stringify(payload);
+    var url = new URL(urlString);
+    var headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body)
+    };
+    if (ENGATI_INBOUND_API_KEY) {
+      headers['Authorization'] = 'Basic ' + ENGATI_INBOUND_API_KEY;
+    }
+    var options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
       method: 'POST',
-      headers: headers,
-      body: JSON.stringify(enginePacket)
+      headers: headers
+    };
+    var req2 = https.request(options, function (res2) {
+      var chunks = '';
+      res2.on('data', function (c) { chunks += c; });
+      res2.on('end', function () {
+        resolve({ statusCode: res2.statusCode, body: chunks });
+      });
     });
-    const text = await response.text();
-    res.status(200).send({ statusCode: response.status, body: text });
-  } catch (e) {
-    console.error('[liveChatSender] forwardToEngati failed: ' + (e && e.message));
-    res.status(200).send({ statusCode: 500, body: JSON.stringify({ error: (e && e.message) || 'unknown error' }) });
-  }
+    req2.on('error', function (err) {
+      resolve({ statusCode: 599, body: JSON.stringify({ error: String((err && err.message) || err) }) });
+    });
+    req2.write(body);
+    req2.end();
+  });
 }
 
 function inferPacketType(mimeType) {
@@ -143,3 +90,79 @@ function inferPacketType(mimeType) {
   if (mimeType.indexOf('audio') === 0) return 'AUDIO';
   return 'IMAGE';
 }
+
+module.exports = function (req, res) {
+  res.writeHead ? null : null;
+  var headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json'
+  };
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, headers);
+    res.end();
+    return;
+  }
+
+  readBody(req).then(function (raw) {
+    var input;
+    try { input = JSON.parse(raw || '{}'); } catch (e) { input = {}; }
+
+    var action = input.action;
+    var phone = input.phone;
+
+    if (!ENGATI_INBOUND_MESSAGE_WEBHOOK_URL) {
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({
+        statusCode: 400,
+        body: JSON.stringify({ error: 'ENGATI_INBOUND_MESSAGE_WEBHOOK_URL not configured yet - External Live Chat not enabled' })
+      }));
+      return;
+    }
+
+    if (!phone) {
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'phone required' }) }));
+      return;
+    }
+
+    var enginePacket;
+
+    if (action === 'sendAgentMessage') {
+      var text = input.text;
+      var media = input.media; // { value: <url>, mimeType: <string> }
+      enginePacket = {
+        externalPacketType: 'AGENT_MESSAGE',
+        body: {
+          packetType: media ? inferPacketType(media.mimeType) : 'TEXT',
+          text: text ? { value: text } : undefined,
+          media: media ? { value: media.value, mimeType: media.mimeType } : undefined,
+          timestamp: new Date().toISOString()
+        },
+        platform: input.platform || 'whatsapp',
+        userId: phone,
+        botKey: input.botKey || DEFAULT_BOT_KEY,
+        botIdentifier: input.botIdentifier || ''
+      };
+    } else if (action === 'resolveLiveChat') {
+      enginePacket = {
+        externalPacketType: 'RESOLVE_LIVE_CHAT',
+        platform: input.platform || 'whatsapp',
+        userId: phone,
+        botKey: input.botKey || DEFAULT_BOT_KEY,
+        botIdentifier: input.botIdentifier || ''
+      };
+    } else {
+      res.writeHead(400, headers);
+      res.end(JSON.stringify({ error: 'unknown action' }));
+      return;
+    }
+
+    engatiPost(ENGATI_INBOUND_MESSAGE_WEBHOOK_URL, enginePacket).then(function (result) {
+      res.writeHead(200, headers);
+      res.end(JSON.stringify(result));
+    });
+  });
+};

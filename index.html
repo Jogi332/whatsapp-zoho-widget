@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Whatsyoo</title>
-<link rel="stylesheet" href="style.css?v=20260805c">
+<link rel="stylesheet" href="style.css?v=20260805d">
 <script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
 </head>
 <body>
@@ -20,12 +20,23 @@
         <button id="templateBtn">Use template</button>
       </div>
       <div id="templateParams"></div>
+      <div id="attachRow">
+        <select id="attachType">
+          <option value="IMAGE">Image</option>
+          <option value="VIDEO">Video</option>
+          <option value="AUDIO">Audio</option>
+        </select>
+        <input id="attachUrl" type="text" placeholder="Attachment URL (image/video/audio)" />
+        <button id="attachClearBtn" type="button" title="Remove attachment">✕</button>
+      </div>
       <div id="composerRow">
+        <button id="attachToggleBtn" type="button" title="Attach image, video, or audio">📎</button>
         <input id="msgInput" type="text" placeholder="Type a message" />
         <button id="sendBtn">Send</button>
       </div>
+      <div id="composerNote">Free-text &amp; attachments require Engati's External Live Chat add-on — not yet confirmed enabled. Sends will fail until then.</div>
     </div>
   </div>
-  <script src="app.js?v=20260805c"></script>
+  <script src="app.js?v=20260805d"></script>
 </body>
 </html>

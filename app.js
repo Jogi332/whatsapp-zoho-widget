@@ -129,31 +129,26 @@ pollTimer = setInterval(function(){ fetchConversation(phone, false); }, POLL_INT
 });
 }
 
-function sendFreeTextMessage(phone, text){
-var url = "https://api.engati.ai/bot-api/v1.0/customer/" + ENGATI_CUSTOMER_ID + "/bot/" + ENGATI_BOT_ID + "/broadcast";
-var body = {
-broadcastId: null,
-broadcastTitle: "widget-reply-" + Date.now(),
-publishedOn: new Date().toISOString(),
-audience: {
-rule: {
-channels: ["whatsapp"],
-channelUserIds: [phone]
-}
-},
-payload: {
-type: "direct",
-content: [
-{ type: "text", data: { message: text } }
-]
-},
-status: null
-};
-return ZOHO.CRM.HTTP.post({
-url: url,
-headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
-body: (function(){ showDebug('outgoing body (raw object, with content-type header): ' + JSON.stringify(body).slice(0,500)); return body; })()
-});
+// NOTE: /broadcast (the old direct-to-Engati free-text call) is permanently
+// blocked without Engati's paid External Live Chat add-on - confirmed via
+// support ticket ES-58564. This function now goes through the AGENT_MESSAGE
+// path instead (see catalyst-functions/liveChatSender/), which is the
+// mechanism Engati's docs describe for that feature. It will fail until
+// External Live Chat is confirmed enabled AND liveChatSender is deployed -
+// that's expected right now, not a bug. Built ahead so it's ready to test
+// the moment Engati confirms.
+var LIVE_CHAT_SENDER_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/liveChatSender/";
+
+function sendFreeTextMessage(phone, text, media){
+var body = { action: 'sendAgentMessage', phone: phone, botKey: ENGATI_BOT_ID };
+if(text){ body.text = text; }
+if(media && media.value){ body.media = { value: media.value, mimeType: media.mimeType }; }
+showDebug('sendAgentMessage outgoing body: ' + JSON.stringify(body).slice(0,500));
+return fetch(LIVE_CHAT_SENDER_PROXY_URL, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(body)
+}).then(function(r){ return r.text(); });
 }
 var templatesById = {};
 
@@ -351,27 +346,48 @@ if(!pollTimer && currentPhone){
 pollTimer = setInterval(function(){ fetchConversation(currentPhone, false); }, POLL_INTERVAL_MS);
 }
 }
+// Attachment UI (free-text side). URL-based for now, matching how template
+// headers already work - file upload / hosting is a separate, not-yet-made
+// decision (see catalyst-functions/README.md).
+document.getElementById('attachToggleBtn').addEventListener('click', function(){
+var row = document.getElementById('attachRow');
+var willShow = row.classList.contains('hidden') || !row.classList.contains('open');
+row.classList.toggle('open');
+this.classList.toggle('active');
+});
+document.getElementById('attachClearBtn').addEventListener('click', function(){
+document.getElementById('attachUrl').value = '';
+document.getElementById('attachType').value = 'IMAGE';
+document.getElementById('attachRow').classList.remove('open');
+document.getElementById('attachToggleBtn').classList.remove('active');
+});
+
 document.getElementById('sendBtn').addEventListener('click',function(){
 var input=document.getElementById('msgInput');
 var text=input.value.trim();
-if(!text)return;
+var attachUrlInput = document.getElementById('attachUrl');
+var attachUrl = attachUrlInput.value.trim();
+var attachType = document.getElementById('attachType').value;
+var media = attachUrl ? { value: attachUrl, mimeType: mimeTypeForPacketType(attachType) } : null;
+if(!text && !media)return;
 if(!currentPhone){ return; }
 var btn=document.getElementById('sendBtn');
 btn.disabled=true;
 var prevLabel=btn.textContent;
 btn.textContent='Sending...';
 pausePolling();
-sendFreeTextMessage(currentPhone, text).then(function(resp){
+sendFreeTextMessage(currentPhone, text, media).then(function(resp){
 var data=safeParse(resp);
 showDebug('RAW RESPONSE: ' + JSON.stringify(resp).slice(0,3000));
-var failed = !!(data && ((data.status_code && data.status_code>=400) || (data.status && data.status>=400) || data.error || data.type==='about:blank' || (data.body && safeParse(data.body) && (safeParse(data.body).error || (safeParse(data.body).status && safeParse(data.body).status>=400)))));
+var failed = !!(data && ((data.statusCode && data.statusCode>=400) || (data.status_code && data.status_code>=400) || (data.status && data.status>=400) || data.error || data.type==='about:blank' || (data.body && safeParse(data.body) && (safeParse(data.body).error || (safeParse(data.body).status && safeParse(data.body).status>=400)))));
 btn.disabled=false;
 btn.textContent=prevLabel;
 resumePolling();
 if(failed){
 return;
 }
-localSentMessages.push({ direction:'out', text: text, time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('sendBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); input.value='';
+localSentMessages.push({ direction:'out', text: text || (media ? '['+attachType+']' : ''), time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('sendBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); input.value='';
+attachUrlInput.value=''; document.getElementById('attachRow').classList.remove('open'); document.getElementById('attachToggleBtn').classList.remove('active');
 fetchConversation(currentPhone, false);
 }).catch(function(err){
 btn.disabled=false;
@@ -380,4 +396,9 @@ resumePolling();
 showDebug('CATCH ERROR: ' + JSON.stringify(err).slice(0,3000));
 });
 });
+function mimeTypeForPacketType(t){
+if(t === 'VIDEO') return 'video/mp4';
+if(t === 'AUDIO') return 'audio/mpeg';
+return 'image/jpeg';
+}
 ZOHO.embeddedApp.init();
