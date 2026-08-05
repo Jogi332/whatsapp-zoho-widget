@@ -28,7 +28,7 @@ d.appendChild(textEl);
 if(m.time){
 var timeEl=document.createElement('div');
 timeEl.className='bubble-time';
-timeEl.textContent=m.time+(m.direction==='out'?(m.status==='delivered'?' ✓✓':' ✓'):'');
+timeEl.textContent=m.time+(m.direction==='out'?(m.status==='delivered'?' \u2713\u2713':' \u2713'):'');
 d.appendChild(timeEl);
 }
 el.appendChild(d);
@@ -44,9 +44,33 @@ var pollTimer = null;
 var lastSignature = null;
 var POLL_INTERVAL_MS = 2000;
 var currentPhone = null;var lastMappedMessages = [];var localSentMessages = [];
-var ENGATI_CUSTOMER_ID = "112609";
-var ENGATI_BOT_ID = "41e497d0ee1d46b6";
-var ENGATI_API_KEY = "37a3db0a-626c-4f36-bbc1-833d5b1d7bf5-IMqeVqx"; var CATALYST_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/whatsappProxy/";
+var ENGATI_CUSTOMER_ID = null;
+var ENGATI_BOT_ID = null;
+var ENGATI_API_KEY = null;
+var CATALYST_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/whatsappProxy/";
+var configReadyPromise = null;
+
+function loadConfigFromVariables(){
+  if(configReadyPromise){ return configReadyPromise; }
+  configReadyPromise = Promise.all([
+    ZOHO.CRM.API.getOrgVariable("ENGATI_CUSTOMER_ID"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_BOT_ID"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_API_KEY")
+  ]).then(function(results){
+    showDebug('getOrgVariable raw response[0]: ' + JSON.stringify(results[0]).slice(0,500));
+    ENGATI_CUSTOMER_ID = (results[0] && results[0].Success && results[0].Success.content) || null;
+    ENGATI_BOT_ID = (results[1] && results[1].Success && results[1].Success.content) || null;
+    ENGATI_API_KEY = (results[2] && results[2].Success && results[2].Success.content) || null;
+    if(!ENGATI_CUSTOMER_ID || !ENGATI_BOT_ID || !ENGATI_API_KEY){
+      renderStatus('WhatsApp integration is not configured. Please set ENGATI_CUSTOMER_ID, ENGATI_BOT_ID and ENGATI_API_KEY under Setup > Developer Hub > Variables.');
+      throw new Error('Missing configuration variables');
+    }
+  }).catch(function(err){
+    renderStatus('Could not load WhatsApp configuration. Please check Setup > Developer Hub > Variables.');
+    throw err;
+  });
+  return configReadyPromise;
+}
 
 function renderMerged(isInitial){ localSentMessages = localSentMessages.filter(function(lm){ return !lastMappedMessages.some(function(sm){ return sm.direction==='out' && sm.text===lm.text; }); }); var merged = lastMappedMessages.concat(localSentMessages).sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); var signature2 = JSON.stringify(merged); showDebug('renderMerged: mapped='+lastMappedMessages.length+' local='+localSentMessages.length+' merged='+merged.length+' sigChanged='+(signature2!==lastSignature)); if(signature2 === lastSignature){ return; } var el2 = document.getElementById('messages'); var wasNearBottom2 = isInitial || isNearBottom(el2); lastSignature = signature2; renderMessages(merged); if(!wasNearBottom2){ el2.scrollTop = el2.scrollHeight - el2.clientHeight - 60; } } function isNearBottom(el){
 return (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
@@ -272,12 +296,15 @@ ZOHO.embeddedApp.on('PageLoad',function(data){
 var entityId = data && (Array.isArray(data.EntityId)?data.EntityId[0]:data.EntityId);
 var entity = (data && data.Entity) || 'Leads';
 if(!entityId){renderStatus('No record context found.');return;}
+renderStatus('Loading configuration...');
+loadConfigFromVariables().then(function(){
 loadTemplates();
-ZOHO.CRM.API.getRecord({Entity:entity,RecordID:entityId}).then(function(res){
+return ZOHO.CRM.API.getRecord({Entity:entity,RecordID:entityId});
+}).then(function(res){
 var rec=res && res.data && res.data[0];
 var phone=rec && (rec.Phone||rec.Mobile);
 if(phone){loadConversation(phone);}else{renderStatus('No phone number on this record.');}
-}).catch(function(){renderStatus('Could not read record.');});
+}).catch(function(){});
 });
 function showDebug(text){
 var el = document.getElementById('debugBox');
