@@ -1,8 +1,13 @@
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;}
 #chat-root{display:flex;flex-direction:column;height:100vh;}
-#brandHeader{display:flex;align-items:center;gap:12px;padding:14px 16px;background:#075E54;color:#fff;flex:0 0 auto;}
-#brandLogo{height:40px;width:40px;object-fit:contain;border-radius:8px;background:#fff;}
-#brandName{font-size:22px;font-weight:bold;letter-spacing:0.3px;}
+#brandHeader{display:flex;align-items:center;gap:12px;padding:14px 16px;background:#075E54;color:#fff;flex:0 0 auto;cursor:pointer;transition:padding 0.15s ease;}
+#brandHeader.collapsed{padding:6px 16px;}
+#brandLogo{height:40px;width:40px;object-fit:contain;border-radius:8px;background:#fff;transition:height 0.15s ease,width 0.15s ease,opacity 0.15s ease;}
+#brandHeader.collapsed #brandLogo{height:0;width:0;opacity:0;margin:0;}
+#brandName{font-size:22px;font-weight:bold;letter-spacing:0.3px;transition:font-size 0.15s ease;}
+#brandHeader.collapsed #brandName{font-size:14px;}
+#brandToggle{margin-left:auto;font-size:11px;transition:transform 0.15s ease;}
+#brandHeader.collapsed #brandToggle{transform:rotate(-90deg);}
 #messages{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;}
 .bubble{max-width:70%;padding:8px 12px;margin:6px 0;border-radius:8px;font-size:13px;line-height:1.4;}
 .in{background:#fff;align-self:flex-start;}

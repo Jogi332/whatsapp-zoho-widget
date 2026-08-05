@@ -297,6 +297,10 @@ alert('Could not send template. Check the template configuration in the WhatsApp
 });
 });
 
+document.getElementById('brandHeader').addEventListener('click', function(){
+this.classList.toggle('collapsed');
+});
+
 ZOHO.embeddedApp.on('PageLoad',function(data){
 var entityId = data && (Array.isArray(data.EntityId)?data.EntityId[0]:data.EntityId);
 var entity = (data && data.Entity) || 'Leads';
