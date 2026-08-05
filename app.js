@@ -58,6 +58,8 @@ function loadConfigFromVariables(){
     ZOHO.CRM.API.getOrgVariable("ENGATI_API_KEY")
   ]).then(function(results){
     showDebug('getOrgVariable raw response[0]: ' + JSON.stringify(results[0]).slice(0,500));
+    showDebug('getOrgVariable raw response[1]: ' + JSON.stringify(results[1]).slice(0,500));
+    showDebug('getOrgVariable raw response[2]: ' + JSON.stringify(results[2]).slice(0,500));
     ENGATI_CUSTOMER_ID = (results[0] && results[0].Success && results[0].Success.Content) || null;
     ENGATI_BOT_ID = (results[1] && results[1].Success && results[1].Success.Content) || null;
     ENGATI_API_KEY = (results[2] && results[2].Success && results[2].Success.Content) || null;
