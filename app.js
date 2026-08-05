@@ -58,9 +58,9 @@ function loadConfigFromVariables(){
     ZOHO.CRM.API.getOrgVariable("ENGATI_API_KEY")
   ]).then(function(results){
     showDebug('getOrgVariable raw response[0]: ' + JSON.stringify(results[0]).slice(0,500));
-    ENGATI_CUSTOMER_ID = (results[0] && results[0].Success && results[0].Success.content) || null;
-    ENGATI_BOT_ID = (results[1] && results[1].Success && results[1].Success.content) || null;
-    ENGATI_API_KEY = (results[2] && results[2].Success && results[2].Success.content) || null;
+    ENGATI_CUSTOMER_ID = (results[0] && results[0].Success && results[0].Success.Content) || null;
+    ENGATI_BOT_ID = (results[1] && results[1].Success && results[1].Success.Content) || null;
+    ENGATI_API_KEY = (results[2] && results[2].Success && results[2].Success.Content) || null;
     if(!ENGATI_CUSTOMER_ID || !ENGATI_BOT_ID || !ENGATI_API_KEY){
       renderStatus('WhatsApp integration is not configured. Please set ENGATI_CUSTOMER_ID, ENGATI_BOT_ID and ENGATI_API_KEY under Setup > Developer Hub > Variables.');
       throw new Error('Missing configuration variables');
