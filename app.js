@@ -100,7 +100,7 @@ return;
 var body = data.body || data.details || data;
 var bodyParsed = safeParse(body) || body;
 var list = (bodyParsed && (bodyParsed.conversations || bodyParsed.messages)) || data.conversations || data.messages || []; showDebug('fetchConversation: server list.length='+list.length+' status_code='+data.status_code);
-if(isInitial && list.length){ var lastOut = list.slice().reverse().find(function(m){ return m.sender==='bot'; }); if(lastOut){ showDebug('FULL raw bot message keys: ' + JSON.stringify(lastOut)); } }
+if(isInitial && list.length){ var lastOut = list.slice().reverse().find(function(m){ return m.sender==='bot'; }); if(lastOut){ showDebug('FULL raw bot message keys: ' + JSON.stringify(lastOut)); console.log('[Whatsyoo] FULL raw bot message keys:', JSON.stringify(lastOut)); } }
 var mapped = list.map(function(m){
 var d = parseEngatiTimestamp(m.timestamp);
 return {
