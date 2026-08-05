@@ -119,6 +119,7 @@ module.exports = function (req, res) {
     var phone = input.phone;
     var inboundMessageWebhookUrl = input.inboundMessageWebhookUrl;
     var botKey = input.botKey;
+    var botIdentifier = input.botIdentifier;
     var inboundApiKey = input.inboundApiKey || '';
 
     if (!inboundMessageWebhookUrl) {
@@ -133,6 +134,19 @@ module.exports = function (req, res) {
     if (!botKey) {
       res.writeHead(200, headers);
       res.end(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'botKey required' }) }));
+      return;
+    }
+
+    // Confirmed by testing (Aug 2026): Engati silently accepts AGENT_MESSAGE
+    // packets with an empty botIdentifier and just never delivers them -
+    // returns {"messageId":null,"errorCode":null} with no error surfaced.
+    // botIdentifier must be the org's ENGATI_CUSTOMER_ID for delivery to
+    // actually work. Not documented in the PDF as required; found via
+    // trial and error. Treat as required here too, so failures are loud
+    // instead of silent.
+    if (!botIdentifier) {
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'botIdentifier required - pass the org\'s ENGATI_CUSTOMER_ID' }) }));
       return;
     }
 
@@ -158,7 +172,7 @@ module.exports = function (req, res) {
         platform: input.platform || 'whatsapp',
         userId: phone,
         botKey: botKey,
-        botIdentifier: input.botIdentifier || ''
+        botIdentifier: botIdentifier
       };
     } else if (action === 'resolveLiveChat') {
       enginePacket = {
@@ -166,7 +180,7 @@ module.exports = function (req, res) {
         platform: input.platform || 'whatsapp',
         userId: phone,
         botKey: botKey,
-        botIdentifier: input.botIdentifier || ''
+        botIdentifier: botIdentifier
       };
     } else {
       res.writeHead(400, headers);

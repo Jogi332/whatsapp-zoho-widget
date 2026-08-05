@@ -150,7 +150,10 @@ function sendFreeTextMessage(phone, text, media){
 if(!ENGATI_INBOUND_MESSAGE_WEBHOOK_URL){
 return Promise.resolve(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'Free-text sending is not configured for this org. Set ENGATI_INBOUND_MESSAGE_WEBHOOK_URL under Setup > Developer Hub > Variables once Engati confirms External Live Chat is enabled.' }) }));
 }
-var body = { action: 'sendAgentMessage', phone: phone, botKey: ENGATI_BOT_ID, inboundMessageWebhookUrl: ENGATI_INBOUND_MESSAGE_WEBHOOK_URL };
+// botIdentifier must be this org's ENGATI_CUSTOMER_ID - Engati silently
+// drops AGENT_MESSAGE packets without it (confirmed by testing, not
+// documented). See catalyst-functions/liveChatSender/index.js.
+var body = { action: 'sendAgentMessage', phone: phone, botKey: ENGATI_BOT_ID, botIdentifier: ENGATI_CUSTOMER_ID, inboundMessageWebhookUrl: ENGATI_INBOUND_MESSAGE_WEBHOOK_URL };
 if(ENGATI_INBOUND_API_KEY){ body.inboundApiKey = ENGATI_INBOUND_API_KEY; }
 if(text){ body.text = text; }
 if(media && media.value){ body.media = { value: media.value, mimeType: media.mimeType }; }
