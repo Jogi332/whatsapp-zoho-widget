@@ -14,6 +14,8 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;}
 .out{background:#dcf8c6;align-self:flex-end;margin-left:auto;}
 .bubble-text{white-space:pre-wrap;word-break:break-word;}
 .bubble-time{font-size:10px;color:#8c8c8c;text-align:right;margin-top:4px;}
+.ticks{color:#8c8c8c;}
+.ticks.read{color:#53bdeb;}
 .status{color:#667781;text-align:center;margin-top:20px;font-size:13px;padding:0 10px;word-break:break-word;}
 #composer{display:flex;flex-direction:column;padding:8px;background:#f0f0f0;border-top:1px solid #ddd;gap:6px;}
 #composerRow{display:flex;}

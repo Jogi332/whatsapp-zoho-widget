@@ -28,7 +28,15 @@ d.appendChild(textEl);
 if(m.time){
 var timeEl=document.createElement('div');
 timeEl.className='bubble-time';
-timeEl.textContent=m.time+(m.direction==='out'?(m.status==='delivered'?' \u2713\u2713':' \u2713'):'');
+if(m.direction==='out'){
+var tickEl=document.createElement('span');
+tickEl.className='ticks'+(m.status==='read'?' read':'');
+tickEl.textContent=(m.status==='sent'?' \u2713':' \u2713\u2713');
+timeEl.textContent=m.time;
+timeEl.appendChild(tickEl);
+} else {
+timeEl.textContent=m.time;
+}
 d.appendChild(timeEl);
 }
 el.appendChild(d);
@@ -92,6 +100,7 @@ return;
 var body = data.body || data.details || data;
 var bodyParsed = safeParse(body) || body;
 var list = (bodyParsed && (bodyParsed.conversations || bodyParsed.messages)) || data.conversations || data.messages || []; showDebug('fetchConversation: server list.length='+list.length+' status_code='+data.status_code);
+if(isInitial && list.length){ var lastOut = list.slice().reverse().find(function(m){ return m.sender==='bot'; }); if(lastOut){ showDebug('FULL raw bot message keys: ' + JSON.stringify(lastOut)); } }
 var mapped = list.map(function(m){
 var d = parseEngatiTimestamp(m.timestamp);
 return {
