@@ -120,6 +120,15 @@ text: m.response || m.text || '',
 time: formatTimestamp(d), ts: d ? d.getTime() : 0, status: 'delivered', user_id: m.user_id || null
 };
 });
+// WhatsApp's 24-hour customer-service-window rule: outside 24h since the
+// user's last inbound message, only template messages can be sent - free
+// text/AGENT_MESSAGE gets rejected. Engati's own error code for this is
+// 1002 USER_IS_OUTSIDE_CONVERSATION_WINDOW. We can't call that API to ask
+// in advance, so this banner is a same-side heuristic from the last
+// inbound message timestamp we've already fetched - a warning, not a
+// guarantee (Engati's own window calculation is the actual authority).
+var lastInboundTs = mapped.slice().reverse().find(function(m){ return m.direction === 'in' && m.ts; });
+updateWindowBanner(lastInboundTs ? lastInboundTs.ts : null);
 // Capture Engati's channel-user id from the most recent message that has
 // one - this is what AGENT_MESSAGE sends must address (see
 // currentEngatiUserId declaration above).
@@ -445,9 +454,33 @@ resumePolling();
 showDebug('CATCH ERROR: name=' + (err && err.name) + ' message=' + (err && err.message) + ' stack=' + (err && err.stack ? String(err.stack).slice(0,500) : 'none'));
 });
 });
+var WINDOW_MS = 24 * 60 * 60 * 1000;
+function updateWindowBanner(lastInboundTsMs){
+var el = document.getElementById('windowBanner');
+if(!el) return;
+if(!lastInboundTsMs){ el.style.display = 'none'; return; }
+var age = Date.now() - lastInboundTsMs;
+if(age > WINDOW_MS){
+var hours = Math.floor(age / (60 * 60 * 1000));
+el.textContent = '⚠ It\'s been ' + hours + 'h since the customer last messaged. Free-text replies may fail outside WhatsApp\'s 24-hour window - use a template instead.';
+el.style.display = 'block';
+} else {
+el.style.display = 'none';
+}
+}
 function mimeTypeForPacketType(t){
 if(t === 'VIDEO') return 'video/mp4';
 if(t === 'AUDIO') return 'audio/mpeg';
 return 'image/jpeg';
 }
+// Enter key in the message box triggers the same Send click - Shift+Enter
+// still allowed through in case someone wants a newline (though msgInput is
+// a single-line <input>, not <textarea>, so Shift+Enter has no visible
+// effect today; kept as a no-op guard in case that ever changes).
+document.getElementById('msgInput').addEventListener('keydown', function(e){
+if(e.key === 'Enter' && !e.shiftKey){
+e.preventDefault();
+document.getElementById('sendBtn').click();
+}
+});
 ZOHO.embeddedApp.init();

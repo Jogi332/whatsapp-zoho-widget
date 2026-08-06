@@ -36,3 +36,4 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;}
 #attachUrl{flex:1;padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;}
 #attachClearBtn{background:#fff;border:1px solid #ccc;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:11px;line-height:1;flex:0 0 auto;color:#c33;}
 #composerNote{font-size:11px;color:#8c8c8c;text-align:center;padding:2px 4px;}
+#windowBanner{background:#fff3cd;color:#856404;font-size:12px;text-align:center;padding:6px 10px;border-top:1px solid #ffe69c;border-bottom:1px solid #ffe69c;}
