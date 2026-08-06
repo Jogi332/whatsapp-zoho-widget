@@ -1,7 +1,8 @@
 {
   "functions": {
     "targets": [
-      "liveChatSender"
+      "liveChatSender",
+      "liveChatWebhook"
     ],
     "ignore": [],
     "source": "functions"
