@@ -30,7 +30,7 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;}
 #templateParams input{padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;}
 #attachRow{display:none;gap:6px;align-items:center;}
 #attachRow.open{display:flex;}
-#attachToggleBtn{background:#fff;border:1px solid #ccc;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:14px;line-height:1;flex:0 0 auto;margin-right:8px;}
+#attachToggleBtn{display:none;background:#fff;border:1px solid #ccc;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:14px;line-height:1;flex:0 0 auto;margin-right:8px;}
 #attachToggleBtn.active{background:#25D366;border-color:#25D366;}
 #attachType{padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;flex:0 0 auto;}
 #attachUrl{flex:1;padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;}
