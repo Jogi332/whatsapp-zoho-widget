@@ -322,9 +322,18 @@ if(!entityId){renderStatus('No record context found.');return;}
 renderStatus('Loading configuration...');
 loadConfigFromVariables().then(function(){
 loadTemplates();
-// TEMP diagnostic: side-by-side fetch test from the real widget iframe origin
-fetch(CATALYST_PROXY_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).then(function(r){ return r.text(); }).then(function(t){ showDebug('DIAG whatsappProxy OK: '+t.slice(0,200)); }).catch(function(e){ showDebug('DIAG whatsappProxy FAIL: '+e.message); });
-fetch(LIVE_CHAT_SENDER_PROXY_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).then(function(r){ return r.text(); }).then(function(t){ showDebug('DIAG liveChatSender OK: '+t.slice(0,200)); }).catch(function(e){ showDebug('DIAG liveChatSender FAIL: '+e.message); });
+// TEMP diagnostic: side-by-side fetch test from the real widget iframe
+// origin, rendered directly in the always-visible messages area (no click
+// needed to see it - a screenshot right after load is enough).
+var __diagEl = document.createElement('div');
+__diagEl.id = 'diagBox';
+__diagEl.style.cssText = 'background:#222;color:#0f0;font-size:11px;padding:6px;white-space:pre-wrap;word-break:break-all;';
+__diagEl.textContent = 'DIAG a=pending b=pending';
+document.getElementById('chat-root').insertBefore(__diagEl, document.getElementById('messages'));
+function __updateDiag(){ __diagEl.textContent = 'DIAG a='+window.__diag.a+' | b='+window.__diag.b; }
+window.__diag = { a: 'pending', b: 'pending' };
+fetch(CATALYST_PROXY_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).then(function(r){ return r.text(); }).then(function(t){ window.__diag.a = 'OK:'+t.slice(0,80); __updateDiag(); }).catch(function(e){ window.__diag.a = 'FAIL:'+e.message; __updateDiag(); });
+fetch(LIVE_CHAT_SENDER_PROXY_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).then(function(r){ return r.text(); }).then(function(t){ window.__diag.b = 'OK:'+t.slice(0,80); __updateDiag(); }).catch(function(e){ window.__diag.b = 'FAIL:'+e.message; __updateDiag(); });
 return ZOHO.CRM.API.getRecord({Entity:entity,RecordID:entityId});
 }).then(function(res){
 var rec=res && res.data && res.data[0];
