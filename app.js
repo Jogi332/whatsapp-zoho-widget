@@ -53,8 +53,8 @@ var ENGATI_BOT_ID = null;
 var ENGATI_API_KEY = null;
 var ENGATI_INBOUND_MESSAGE_WEBHOOK_URL = null; // optional - only needed for free-text/attachments via External Live Chat
 var ENGATI_INBOUND_API_KEY = null; // optional - only if this org set one up in Engati's Configure screen
-var CATALYST_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/whatsappProxy/";
-var LIVE_CHAT_SENDER_PROXY_URL = "https://project-rainfall-60081410942.development.catalystserverless.in/server/liveChatSender/";
+var CATALYST_PROXY_URL = "https://project-rainfall-60081410942.catalystserverless.in/server/whatsappProxy/";
+var LIVE_CHAT_SENDER_PROXY_URL = "https://project-rainfall-60081410942.catalystserverless.in/server/liveChatSender/";
 var configReadyPromise = null;
 
 function loadConfigFromVariables(){
