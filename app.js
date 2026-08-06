@@ -48,6 +48,12 @@ var pollTimer = null;
 var lastSignature = null;
 var POLL_INTERVAL_MS = 2000;
 var currentPhone = null;var lastMappedMessages = [];var localSentMessages = [];
+// Engati's own internal channel-user id (a UUID, distinct from the phone
+// number) - captured from /conversations responses. AGENT_MESSAGE sends
+// must address this id, not the raw phone number, or Engati can't match
+// the reply to the active live-chat session and silently drops it (no
+// error, not even a STATUS_PACKET - confirmed via testing, undocumented).
+var currentEngatiUserId = null;
 var ENGATI_CUSTOMER_ID = null;
 var ENGATI_BOT_ID = null;
 var ENGATI_API_KEY = null;
@@ -111,9 +117,14 @@ var d = parseEngatiTimestamp(m.timestamp);
 return {
 direction: (m.sender === 'bot' ? 'out' : 'in'),
 text: m.response || m.text || '',
-time: formatTimestamp(d), ts: d ? d.getTime() : 0, status: 'delivered'
+time: formatTimestamp(d), ts: d ? d.getTime() : 0, status: 'delivered', user_id: m.user_id || null
 };
 });
+// Capture Engati's channel-user id from the most recent message that has
+// one - this is what AGENT_MESSAGE sends must address (see
+// currentEngatiUserId declaration above).
+var withUserId = mapped.slice().reverse().find(function(m){ return m.user_id; });
+if(withUserId){ currentEngatiUserId = withUserId.user_id; }
 lastMappedMessages = mapped; renderMerged(isInitial); return;
 if(signature === lastSignature){ return; }
 var el = document.getElementById('messages');
@@ -150,10 +161,24 @@ function sendFreeTextMessage(phone, text, media){
 if(!ENGATI_INBOUND_MESSAGE_WEBHOOK_URL){
 return Promise.resolve(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'Free-text sending is not configured for this org. Set ENGATI_INBOUND_MESSAGE_WEBHOOK_URL under Setup > Developer Hub > Variables once Engati confirms External Live Chat is enabled.' }) }));
 }
+// AGENT_MESSAGE must address Engati's own channel-user id (a UUID Engati
+// assigns per conversation, seen in /conversations responses and in
+// START_CHAT/USER_MESSAGE webhook payloads), NOT the raw phone number -
+// confirmed by testing: sending with the phone number as userId returns
+// success (messageId, errorCode:null) but Engati never delivers it and
+// never even sends a STATUS_PACKET back, because there's no live-chat
+// session matching that id. Fall back to phone only if we haven't seen a
+// user_id yet (e.g. conversation hasn't loaded), so sends still attempt
+// something and surface Engati's real error via STATUS_PACKET instead of
+// silently doing nothing client-side.
+if(!currentEngatiUserId){
+showDebug('sendAgentMessage WARNING: no currentEngatiUserId captured yet - falling back to phone number, this will likely fail with USER_NOT_IN_LIVE_CHAT or be silently dropped');
+}
+var targetUserId = currentEngatiUserId || phone;
 // botIdentifier must be this org's ENGATI_CUSTOMER_ID - Engati silently
 // drops AGENT_MESSAGE packets without it (confirmed by testing, not
 // documented). See catalyst-functions/liveChatSender/index.js.
-var body = { action: 'sendAgentMessage', phone: phone, botKey: ENGATI_BOT_ID, botIdentifier: ENGATI_CUSTOMER_ID, inboundMessageWebhookUrl: ENGATI_INBOUND_MESSAGE_WEBHOOK_URL };
+var body = { action: 'sendAgentMessage', phone: targetUserId, botKey: ENGATI_BOT_ID, botIdentifier: ENGATI_CUSTOMER_ID, inboundMessageWebhookUrl: ENGATI_INBOUND_MESSAGE_WEBHOOK_URL };
 if(ENGATI_INBOUND_API_KEY){ body.inboundApiKey = ENGATI_INBOUND_API_KEY; }
 if(text){ body.text = text; }
 if(media && media.value){ body.media = { value: media.value, mimeType: media.mimeType }; }
