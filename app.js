@@ -407,7 +407,7 @@ fetchConversation(currentPhone, false);
 btn.disabled=false;
 btn.textContent=prevLabel;
 resumePolling();
-showDebug('CATCH ERROR: ' + JSON.stringify(err).slice(0,3000));
+showDebug('CATCH ERROR: name=' + (err && err.name) + ' message=' + (err && err.message) + ' stack=' + (err && err.stack ? String(err.stack).slice(0,500) : 'none'));
 });
 });
 function mimeTypeForPacketType(t){
