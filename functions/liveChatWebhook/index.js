@@ -2,9 +2,24 @@
 //
 // This is the "External Webhook URL" target for Engati's External Live Chat
 // feature (Configure > External Live Chat > External Webhook URL). Engati
-// POSTs two event types here:
+// POSTs these event types here:
 //   - START_CHAT    : a bot user requested a human agent
 //   - USER_MESSAGE  : a bot user sent a message while in live chat
+//   - STATUS_PACKET : async delivery-status callback for a packet WE sent
+//                     via liveChatSender (AGENT_MESSAGE/RESOLVE_LIVE_CHAT).
+//                     The synchronous response liveChatSender gets back
+//                     (messageId/errorCode) is just "packet received", NOT
+//                     delivery confirmation - the real outcome (including
+//                     errors like USER_NOT_IN_LIVE_CHAT, code 1004) arrives
+//                     later as a STATUS_PACKET here. Critically, this uses
+//                     "type": "STATUS_PACKET" at the top level, NOT
+//                     "externalPacketType" like the other two event types -
+//                     easy to miss and originally missed entirely (this
+//                     function used to only check body.externalPacketType,
+//                     so STATUS_PACKETs silently fell into the "empty
+//                     validation ping" branch below and were never logged,
+//                     which is exactly why an earlier AGENT_MESSAGE
+//                     delivery failure went undiagnosed).
 //
 // Contract (from Engati's "External Live Chat V2" developer doc):
 //   - MUST return a 2xx status. Engati validates this endpoint with an
@@ -66,6 +81,34 @@ module.exports = function (req, res) {
     //   res.end(JSON.stringify({ error: 'unauthorized' }));
     //   return;
     // }
+
+    // STATUS_PACKET uses "type", not "externalPacketType" - check this before
+    // the validation-ping fallback below, or it gets swallowed as a no-op.
+    if (body.type === 'STATUS_PACKET') {
+      var statusBody = body.body || {};
+      console.log('[liveChatWebhook] STATUS_PACKET status=' + statusBody.status + ' code=' + statusBody.code + ' description=' + statusBody.description + ' userId=' + (body.userId || '') + ' botKey=' + (body.botKey || ''));
+
+      var catalystAppForStatus = catalyst.initialize(req);
+      catalystAppForStatus.datastore().table('LiveChatEvents').insertRow({
+        packet_type: 'STATUS_PACKET',
+        user_id: body.userId || '',
+        bot_key: body.botKey || '',
+        platform: body.platform || '',
+        message_type: statusBody.status || null,
+        text_value: (statusBody.code || '') + ': ' + (statusBody.description || ''),
+        media_value: null,
+        media_mime_type: null,
+        livechat_category: null,
+        raw_payload: JSON.stringify(body).slice(0, 5000),
+        received_at: new Date().toISOString()
+      }).catch(function (e) {
+        console.error('[liveChatWebhook] LiveChatEvents insert (STATUS_PACKET) failed: ' + (e && e.message));
+      }).then(function () {
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
 
     // Engati's own validation ping on Save is an empty-body POST - just ack it.
     if (!body.externalPacketType) {
