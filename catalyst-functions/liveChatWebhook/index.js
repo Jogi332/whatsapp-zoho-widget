@@ -29,54 +29,62 @@
 //      cares about receiving 2xx; log failures instead of failing the
 //      response).
 //
-// Deployment: add this as a new function (Advanced I/O, Node.js) inside the
-// same Catalyst project as `whatsappProxy` (Project-Rainfall), or as its own
-// project - whichever matches how the existing proxy is organized. Copy this
-// file in as the function's index.js, deploy, then copy the resulting
-// function URL into Engati's "External Webhook URL" field once External Live
-// Chat is enabled on the new bot (Customer ID 126125 / Bot Key
-// cce5df75e8bb4d41).
+// IMPORTANT: this is an Advanced I/O function, same as whatsappProxy and
+// liveChatSender - `req`/`res` are raw Node http objects, NOT Express-style.
+// No req.body (must read the stream manually), no res.status().send() (must
+// use res.writeHead()/res.end()). An earlier version of this file assumed
+// Express conventions and crashed every invocation with
+// "TypeError: res.status is not a function" - confirmed via direct curl
+// test before this ever got wired into Engati's Configure screen.
 
 const catalyst = require('zcatalyst-sdk-node');
 
-module.exports = async (req, res) => {
-  const catalystApp = catalyst.initialize(req);
+function readBody(req) {
+  return new Promise(function (resolve) {
+    var data = '';
+    req.on('data', function (chunk) { data += chunk; });
+    req.on('end', function () { resolve(data); });
+    req.on('error', function () { resolve(''); });
+  });
+}
 
-  // Optional shared-secret check: if you set an Inbound API key when
-  // configuring External Live Chat in Engati, it's sent back to us as an
-  // Authorization header on every call here. Uncomment and set the expected
-  // value (e.g. via a Catalyst environment variable) once you've decided to
-  // use one.
-  //
-  // const expected = 'Basic ' + process.env.ENGATI_INBOUND_API_KEY;
-  // if (req.headers['authorization'] !== expected) {
-  //   res.status(401).send({ error: 'unauthorized' });
-  //   return;
-  // }
+module.exports = function (req, res) {
+  var headers = { 'Content-Type': 'application/json' };
 
-  let body = req.body;
-  if (typeof body === 'string') {
-    try { body = JSON.parse(body); } catch (e) { body = {}; }
-  }
-  body = body || {};
+  readBody(req).then(function (raw) {
+    var body;
+    try { body = JSON.parse(raw || '{}'); } catch (e) { body = {}; }
 
-  // Engati's own validation ping on Save is an empty-body POST - just ack it.
-  if (!body.externalPacketType) {
-    res.status(200).send({ ok: true, note: 'no externalPacketType - treated as validation ping' });
-    return;
-  }
+    // Optional shared-secret check: if you set an Inbound API key when
+    // configuring External Live Chat in Engati, it's sent back to us as an
+    // Authorization header on every call here. Uncomment and set the
+    // expected value once you've decided to use one.
+    //
+    // var expected = 'Basic ' + process.env.ENGATI_INBOUND_API_KEY;
+    // if (req.headers['authorization'] !== expected) {
+    //   res.writeHead(401, headers);
+    //   res.end(JSON.stringify({ error: 'unauthorized' }));
+    //   return;
+    // }
 
-  const packetType = body.externalPacketType;
-  const eventBody = body.body || {};
-  const userId = body.userId || '';
-  const botKey = body.botKey || '';
-  const platform = body.platform || '';
+    // Engati's own validation ping on Save is an empty-body POST - just ack it.
+    if (!body.externalPacketType) {
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({ ok: true, note: 'no externalPacketType - treated as validation ping' }));
+      return;
+    }
 
-  console.log('[liveChatWebhook] packetType=' + packetType + ' userId=' + userId + ' botKey=' + botKey);
+    var packetType = body.externalPacketType;
+    var eventBody = body.body || {};
+    var userId = body.userId || '';
+    var botKey = body.botKey || '';
+    var platform = body.platform || '';
 
-  try {
-    const table = catalystApp.datastore().table('LiveChatEvents');
-    await table.insertRow({
+    console.log('[liveChatWebhook] packetType=' + packetType + ' userId=' + userId + ' botKey=' + botKey);
+
+    var catalystApp = catalyst.initialize(req);
+    var table = catalystApp.datastore().table('LiveChatEvents');
+    table.insertRow({
       packet_type: packetType,
       user_id: userId,
       bot_key: botKey,
@@ -88,13 +96,14 @@ module.exports = async (req, res) => {
       livechat_category: eventBody.livechatCategoryName || null,
       raw_payload: JSON.stringify(body).slice(0, 5000),
       received_at: new Date().toISOString()
+    }).catch(function (e) {
+      // Don't fail the response over a storage hiccup - Engati only needs 2xx.
+      console.error('[liveChatWebhook] LiveChatEvents insert failed: ' + (e && e.message));
+    }).then(function () {
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({ ok: true }));
     });
-  } catch (e) {
-    // Don't fail the response over a storage hiccup - Engati only needs 2xx.
-    console.error('[liveChatWebhook] LiveChatEvents insert failed: ' + (e && e.message));
-  }
-
-  res.status(200).send({ ok: true });
+  });
 };
 
 // NOTE - follow-up not covered by this function:
