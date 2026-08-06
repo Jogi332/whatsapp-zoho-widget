@@ -158,9 +158,19 @@ if(ENGATI_INBOUND_API_KEY){ body.inboundApiKey = ENGATI_INBOUND_API_KEY; }
 if(text){ body.text = text; }
 if(media && media.value){ body.media = { value: media.value, mimeType: media.mimeType }; }
 showDebug('sendAgentMessage outgoing body: ' + JSON.stringify(body).slice(0,500));
+// Content-Type is deliberately text/plain, not application/json: Catalyst's
+// Advanced I/O gateway answers the browser's CORS preflight (OPTIONS) itself,
+// before our function code runs, with no Access-Control-Allow-* headers -
+// there's no console setting to fix this (API Gateway, which could, isn't
+// enabled here). application/json is a "non-simple" content-type that forces
+// a preflight, which then gets blocked. text/plain is "simple" and skips
+// preflight entirely, going straight to the real POST - whose response
+// headers ARE correct (confirmed via curl). The function still JSON.parse()s
+// the body regardless of declared content-type, so this needs no server-side
+// change. See same fix on sendTemplateViaProxy()/CATALYST_PROXY_URL below.
 return fetch(LIVE_CHAT_SENDER_PROXY_URL, {
 method: 'POST',
-headers: { 'Content-Type': 'application/json' },
+headers: { 'Content-Type': 'text/plain' },
 body: JSON.stringify(body)
 }).then(function(r){ return r.text(); });
 }
@@ -264,7 +274,7 @@ language: { code: (document.getElementById('tplLanguageSelect') || {}).value || 
 }
 
 function sendTemplateMessage(phone, rec){
-var url = "https://api.engati.ai/whatsapp-api/v1.0/customer/" + ENGATI_CUSTOMER_ID + "/bot/" + ENGATI_BOT_ID + "/template"; return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); });
+var url = "https://api.engati.ai/whatsapp-api/v1.0/customer/" + ENGATI_CUSTOMER_ID + "/bot/" + ENGATI_BOT_ID + "/template"; return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); });
 var body = {
 phoneNumber: '+' + phone,
 payload: buildTemplatePayload(rec)
@@ -276,7 +286,7 @@ body: (function(){ showDebug('outgoing body (raw object, with content-type heade
 });
 }
 
-function sendTemplateViaProxy(phone, rec){ return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); }); } document.getElementById('templateSelect').addEventListener('change', function(){
+function sendTemplateViaProxy(phone, rec){ return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); }); } document.getElementById('templateSelect').addEventListener('change', function(){
 var rec = templatesById[this.value];
 renderTemplateParams(rec);
 });
