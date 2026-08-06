@@ -322,6 +322,9 @@ if(!entityId){renderStatus('No record context found.');return;}
 renderStatus('Loading configuration...');
 loadConfigFromVariables().then(function(){
 loadTemplates();
+// TEMP diagnostic: side-by-side fetch test from the real widget iframe origin
+fetch(CATALYST_PROXY_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).then(function(r){ return r.text(); }).then(function(t){ showDebug('DIAG whatsappProxy OK: '+t.slice(0,200)); }).catch(function(e){ showDebug('DIAG whatsappProxy FAIL: '+e.message); });
+fetch(LIVE_CHAT_SENDER_PROXY_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).then(function(r){ return r.text(); }).then(function(t){ showDebug('DIAG liveChatSender OK: '+t.slice(0,200)); }).catch(function(e){ showDebug('DIAG liveChatSender FAIL: '+e.message); });
 return ZOHO.CRM.API.getRecord({Entity:entity,RecordID:entityId});
 }).then(function(res){
 var rec=res && res.data && res.data[0];
