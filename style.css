@@ -23,21 +23,21 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
 .status{color:#667781;text-align:center;margin-top:20px;font-size:13px;padding:0 10px;word-break:break-word;}
 #composer{display:flex;flex-direction:column;padding:8px;background:#f0f0f0;border-top:1px solid #ddd;gap:6px;}
 #composerRow{display:flex;}
-#msgInput{flex:1;padding:8px;border:1px solid #ccc;border-radius:20px;margin-right:8px;}
-#sendBtn{background:#25D366;color:#fff;border:none;border-radius:20px;padding:8px 16px;cursor:pointer;}
+#msgInput{flex:1;min-width:0;padding:10px 14px;font-size:16px;border:1px solid #ccc;border-radius:20px;margin-right:8px;}
+#sendBtn{background:#25D366;color:#fff;border:none;border-radius:20px;padding:8px 16px;min-height:40px;cursor:pointer;}
 #sendBtn:disabled{opacity:0.6;cursor:default;}
 #templateRow{display:flex;gap:6px;align-items:center;}
-#templateSelect{flex:1;padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;}
-#templateBtn{background:#128C7E;color:#fff;border:none;border-radius:20px;padding:6px 12px;cursor:pointer;font-size:12px;}
+#templateSelect{flex:1;min-width:0;padding:8px 6px;border:1px solid #ccc;border-radius:6px;font-size:16px;}
+#templateBtn{background:#128C7E;color:#fff;border:none;border-radius:20px;padding:8px 12px;min-height:36px;cursor:pointer;font-size:13px;flex:0 0 auto;}
 #templateBtn:disabled{opacity:0.6;cursor:default;}
 #templateParams{display:flex;flex-direction:column;gap:4px;}
-#templateParams input{padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;}
+#templateParams input{padding:8px;border:1px solid #ccc;border-radius:6px;font-size:16px;}
 #attachRow{display:none;gap:6px;align-items:center;}
 #attachRow.open{display:flex;}
-#attachToggleBtn{display:none;background:#fff;border:1px solid #ccc;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:14px;line-height:1;flex:0 0 auto;margin-right:8px;}
+#attachToggleBtn{display:none;background:#fff;border:1px solid #ccc;border-radius:50%;width:40px;height:40px;cursor:pointer;font-size:16px;line-height:1;flex:0 0 auto;margin-right:8px;}
 #attachToggleBtn.active{background:#25D366;border-color:#25D366;}
-#attachType{padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;flex:0 0 auto;}
-#attachUrl{flex:1;padding:6px;border:1px solid #ccc;border-radius:6px;font-size:12px;}
-#attachClearBtn{background:#fff;border:1px solid #ccc;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:11px;line-height:1;flex:0 0 auto;color:#c33;}
+#attachType{padding:8px 6px;border:1px solid #ccc;border-radius:6px;font-size:16px;flex:0 0 auto;}
+#attachUrl{flex:1;min-width:0;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:16px;}
+#attachClearBtn{background:#fff;border:1px solid #ccc;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:13px;line-height:1;flex:0 0 auto;color:#c33;}
 #composerNote{font-size:11px;color:#8c8c8c;text-align:center;padding:2px 4px;}
 #windowBanner{background:#fff3cd;color:#856404;font-size:12px;text-align:center;padding:6px 10px;border-top:1px solid #ffe69c;border-bottom:1px solid #ffe69c;}
