@@ -747,7 +747,21 @@ this.classList.toggle('active');
 // this project deliberately avoids npm/CDN dependencies (see file header
 // conventions elsewhere) and a WhatsApp composer doesn't need the full
 // Unicode emoji range, just the common chat ones.
-var EMOJI_LIST = ['😀','😃','😄','😁','😊','🙂','😉','😍','😘','😜','🤔','😐','😴','😢','😭','😡','👍','👎','👏','🙏','🤝','❤️','🔥','🎉','✅','❌','😅','😇','🥰','😎','🤗','😬','😳','🥳','🤩','📞','💬','🙌','😞','😱'];
+var EMOJI_LIST = [
+// Jewellery / gifting - listed first since this deployment is for a
+// jewellery shop, so these are the most likely to actually get used.
+'💍','💎','👑','✨','🌟','💫','🎀','🎁','🛍️','👛','👜','📿','⌚','💐','🌹','🥂','👰','🤵','💒','🏷️',
+// Faces / emotions
+'😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😙','😚','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀',
+// Hands / gestures
+'👍','👎','👏','🙌','🙏','🤝','👊','✊','🤛','🤜','🤞','✌️','🤟','🤘','👌','🤌','👋','🤙','💪','🖐️','✋','👆','👇','👈','👉',
+// Hearts / symbols
+'❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','🔥','⭐','🌟','✨','💯','💢','💥','💫','💦','💨','🕳️','💬','💭','🎉','🎊',
+// Status / common reactions
+'✅','❌','❗','❓','⚠️','🚫','🔴','🟢','🟡','🔵','⚡','💤',
+// Everyday objects (support/business relevant)
+'📞','📱','📧','📩','📎','📅','⏰','⏳','💰','💵','💳','🎁','📦','✏️','📝','📌','🔒','🔑','🛒','🏠','🚗','✈️'
+];
 (function(){
 var panel = document.getElementById('emojiPanel');
 EMOJI_LIST.forEach(function(emoji){

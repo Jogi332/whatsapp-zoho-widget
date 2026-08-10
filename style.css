@@ -57,7 +57,7 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
    the input itself, not a separate button beside it. */
 #emojiBtn{position:absolute;right:4px;bottom:4px;background:none;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:17px;line-height:1;padding:0;}
 #emojiBtn.active{background:#e8e8e8;}
-#emojiPanel{display:none;position:absolute;bottom:44px;right:0;width:240px;max-height:180px;overflow-y:auto;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:6px;grid-template-columns:repeat(6,1fr);gap:2px;z-index:20;}
+#emojiPanel{display:none;position:absolute;bottom:44px;right:0;width:240px;max-height:220px;overflow-y:auto;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:6px;grid-template-columns:repeat(6,1fr);gap:2px;z-index:20;}
 #emojiPanel.open{display:grid;}
 #emojiPanel button{background:none;border:none;font-size:20px;line-height:1;cursor:pointer;padding:4px;border-radius:4px;}
 #emojiPanel button:hover{background:#f0f0f0;}
