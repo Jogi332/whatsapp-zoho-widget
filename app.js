@@ -1,0 +1,1009 @@
+function renderStatus(t){document.getElementById('messages').innerHTML='<div class="status">'+t+'</div>';}
+function safeParse(r){try{return typeof r==='string'?JSON.parse(r):r;}catch(e){return null;}}
+function parseEngatiTimestamp(ts){
+if(!ts) return null;
+var iso = String(ts).replace(/^(\d{4})\/(\d{2})\/(\d{2})/, '$1-$2-$3').replace(' ', 'T');
+iso = iso.replace(/T(\d{2}):(\d{2}):(\d{2}\.\d+)([+-]\d{4})$/, function(_, h, mi, s, tz){
+return 'T'+h+':'+mi+':'+s+tz.slice(0,3)+':'+tz.slice(3);
+});
+var d = new Date(iso);
+return isNaN(d.getTime()) ? null : d;
+}
+function formatTimestamp(d){
+if(!d) return '';
+var opts = {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'};
+return d.toLocaleString(undefined, opts);
+}
+// Engati's /conversations returns several message_type values beyond plain
+// TEXT, and the widget used to dump each one's raw payload straight into a
+// chat bubble. Observed in the live conversation:
+//   AGENT_PARTICIPATION_STATUS -> rendered the literal JSON
+//     {"agentId":128654,"PARTICIPATION_MESSAGE":"Adlinks Test<\/strong> joined..."}
+//   OPTIONS                    -> rendered the literal array "[⭐, ⭐⭐, ⭐⭐⭐]"
+// These classify/format them instead.
+
+// Pulls the human sentence out of an AGENT_PARTICIPATION_STATUS payload.
+// Engati embeds HTML in it ("<strong>Name</strong> joined the conversation"),
+// so tags are stripped rather than injected - everything else in this UI uses
+// textContent and we don't want raw markup reaching the DOM.
+function participationText(raw){
+var parsed = safeParse(raw);
+var msg = (parsed && parsed.PARTICIPATION_MESSAGE) || '';
+return msg ? String(msg).replace(/<[^>]*>/g, '').trim() : '';
+}
+
+function mediaKindFor(url, messageType){
+var t = String(messageType || '').toUpperCase();
+if(t === 'IMAGE' || t === 'VIDEO' || t === 'AUDIO'){ return t.toLowerCase(); }
+var u = String(url || '').toLowerCase().split('#')[0].split('?')[0];
+if(/\.(jpg|jpeg|png|gif|webp)$/.test(u)) return 'image';
+if(/\.(mp4|3gp|mov|webm)$/.test(u)) return 'video';
+if(/\.(mp3|ogg|m4a|amr|aac|wav)$/.test(u)) return 'audio';
+return 'file';
+}
+
+// Engati doesn't document how media comes back from /conversations, and the
+// test conversation contains no media messages yet, so every plausible field
+// is checked rather than guessing one. Anything unexpected is logged so the
+// real shape can be confirmed the first time a customer sends a photo.
+function extractMediaUrl(m){
+var direct = m.file || (m.media && m.media.value) || null;
+if(typeof direct === 'string' && direct) return direct;
+var att = m.attachments;
+if(!att) return null;
+if(typeof att === 'string') return att;
+if(Array.isArray(att) && att.length){
+var first = att[0];
+if(typeof first === 'string') return first;
+if(first && typeof first === 'object'){ return first.url || first.value || first.link || null; }
+}
+if(typeof att === 'object'){ return att.url || att.value || att.link || null; }
+showDebug('extractMediaUrl: unrecognised attachment shape: ' + JSON.stringify(att).slice(0, 300));
+return null;
+}
+
+// Turns one raw Engati message into what the UI needs to draw it.
+function toDisplayMessage(m){
+var d = parseEngatiTimestamp(m.timestamp);
+var type = String(m.message_type || '').toUpperCase();
+var base = {
+direction: (m.sender === 'bot' ? 'out' : 'in'),
+time: formatTimestamp(d),
+ts: d ? d.getTime() : 0,
+status: 'delivered'
+};
+if(type === 'AGENT_PARTICIPATION_STATUS'){
+base.kind = 'system';
+base.text = participationText(m.response);
+return base;
+}
+var mediaUrl = extractMediaUrl(m);
+if(mediaUrl){
+base.kind = 'media';
+base.mediaUrl = mediaUrl;
+base.mediaKind = mediaKindFor(mediaUrl, type);
+// Media messages can carry a caption alongside the file.
+base.text = (typeof m.response === 'string' && m.response !== mediaUrl) ? m.response : '';
+return base;
+}
+base.kind = 'text';
+base.text = m.response || m.text || '';
+return base;
+}
+
+function appendMediaTo(container, msg){
+var kind = msg.mediaKind;
+var node;
+if(kind === 'image'){
+node = document.createElement('img');
+node.src = msg.mediaUrl;
+node.alt = 'Image attachment';
+node.loading = 'lazy';
+} else if(kind === 'video'){
+node = document.createElement('video');
+node.src = msg.mediaUrl;
+node.controls = true;
+node.preload = 'metadata';
+} else if(kind === 'audio'){
+node = document.createElement('audio');
+node.src = msg.mediaUrl;
+node.controls = true;
+node.preload = 'metadata';
+} else {
+// Unknown type (document, sticker, anything new) - a link is always safe.
+node = document.createElement('a');
+node.href = msg.mediaUrl;
+node.target = '_blank';
+node.rel = 'noopener noreferrer';
+node.textContent = 'Open attachment';
+}
+node.className = 'bubble-media bubble-media-' + kind;
+// A broken media URL shouldn't leave an invisible gap with no explanation -
+// this is exactly the 131053 class of failure, where the URL is accepted but
+// unfetchable.
+if(kind === 'image' || kind === 'video' || kind === 'audio'){
+node.onerror = function(){
+var fallback = document.createElement('a');
+fallback.href = msg.mediaUrl;
+fallback.target = '_blank';
+fallback.rel = 'noopener noreferrer';
+fallback.className = 'bubble-media-failed';
+fallback.textContent = 'Attachment could not be loaded - open directly';
+if(node.parentNode){ node.parentNode.replaceChild(fallback, node); }
+};
+}
+container.appendChild(node);
+}
+
+function renderMessages(list){
+var el=document.getElementById('messages');
+el.innerHTML='';
+if(!list||!list.length){renderStatus('No messages found.');return;}
+list.forEach(function(m){
+// System notes (agent joined/left) aren't messages from either party, so
+// they're drawn as a centered note rather than a chat bubble.
+if(m.kind === 'system'){
+if(!m.text) return;
+var sys=document.createElement('div');
+sys.className='system-note';
+sys.textContent=m.text+(m.time?' · '+m.time:'');
+el.appendChild(sys);
+return;
+}
+var d=document.createElement('div');
+d.className='bubble '+(m.direction==='out'?'out':'in');
+if(m.kind === 'media' && m.mediaUrl){
+appendMediaTo(d, m);
+}
+// Media messages only get a text node if they actually carry a caption.
+if(m.kind !== 'media' || m.text){
+var textEl=document.createElement('div');
+textEl.className='bubble-text';
+textEl.textContent=m.text||'';
+d.appendChild(textEl);
+}
+if(m.time){
+var timeEl=document.createElement('div');
+timeEl.className='bubble-time';
+var tickEl=document.createElement('span');
+tickEl.className='ticks'+(m.status==='read'?' read':'');
+tickEl.textContent=(m.status==='sent'?' \u2713':' \u2713\u2713');
+timeEl.textContent=m.time;
+timeEl.appendChild(tickEl);
+d.appendChild(timeEl);
+}
+el.appendChild(d);
+});
+el.scrollTop=el.scrollHeight;
+}
+// Default country code used only for numbers stored WITHOUT one. Set per org
+// via the DEFAULT_COUNTRY_CODE variable - a customer in the US needs "1", the
+// UK "44", etc. Defaults to India for backward compatibility with the original
+// org, which is where this widget started.
+var DEFAULT_COUNTRY_CODE = '91';
+
+// WhatsApp/Engati identify a user by their full international number, digits
+// only, no "+". CRM records store phone numbers inconsistently though, so this
+// normalises the common shapes.
+//
+// The previous version did `if(digits.length === 10) digits = '91' + digits`,
+// which hardcoded India for ANY 10-digit number - a US number like 4155551234
+// became 914155551234. That breaks the moment a customer outside India (or an
+// Indian customer with overseas contacts) uses this.
+function normalizePhone(phone){
+var raw = String(phone == null ? '' : phone).trim();
+// A leading "+" or "00" means the number already carries its country code.
+var isInternational = /^\+/.test(raw) || /^00\d/.test(raw);
+var digits = raw.replace(/[^0-9]/g, '');
+if(/^00\d/.test(raw)){ digits = digits.replace(/^00/, ''); }
+if(!digits) return '';
+if(isInternational) return digits;
+// A leading 0 is a national trunk prefix (UK, DE, AU, ZA...) - it is dropped
+// when dialling internationally and replaced by the country code.
+if(/^0/.test(digits)){ return DEFAULT_COUNTRY_CODE + digits.replace(/^0+/, ''); }
+// 10 digits or fewer is a bare national number needing a country code.
+// Longer than that already includes one - importantly this is decided by
+// length, not by sniffing for a leading "91", because plenty of valid Indian
+// mobiles legitimately start with 91 themselves.
+if(digits.length <= 10){ return DEFAULT_COUNTRY_CODE + digits; }
+return digits;
+}
+var pollTimer = null;
+var lastSignature = null;
+var POLL_INTERVAL_MS = 2000;
+var currentPhone = null;var lastMappedMessages = [];var localSentMessages = [];
+// CORRECTED Aug 9, 2026: an earlier version of this preferred a UUID
+// captured from /conversations, on the theory that AGENT_MESSAGE had to
+// address Engati's "internal" id. That was wrong. Inspecting the real
+// LiveChatEvents webhook rows showed those UUIDs only ever appear on
+// packets with platform:"web" (i.e. someone testing via the web chat
+// widget). Actual WhatsApp traffic for this bot arrives with
+// platform:"dialog360" and user_id set to the plain phone number
+// (e.g. "919061084736"). So sending AGENT_MESSAGE addressed to the UUID
+// was targeting a web-channel user that doesn't exist on WhatsApp -
+// which is why it was silently dropped with no STATUS_PACKET at all.
+// Keep this null unless a non-UUID id is genuinely observed; the phone
+// number is the correct target for WhatsApp.
+var currentEngatiUserId = null;
+// Channel/platform Engati uses for this conversation. Engati's own
+// packets for this bot's WhatsApp channel say "dialog360", NOT
+// "whatsapp" - captured from inbound webhook packets rather than
+// assumed, since it's provider-specific (a bot on a different WhatsApp
+// BSP would report something else).
+var currentEngatiPlatform = null;
+var ENGATI_CUSTOMER_ID = null;
+var ENGATI_BOT_ID = null;
+var ENGATI_API_KEY = null;
+var ENGATI_INBOUND_MESSAGE_WEBHOOK_URL = null; // optional - only needed for free-text/attachments via External Live Chat
+var ENGATI_INBOUND_API_KEY = null; // optional - only if this org set one up in Engati's Configure screen
+// NOT the same value as ENGATI_CUSTOMER_ID, despite both looking like "the
+// bot's ID". ENGATI_CUSTOMER_ID (labelled "Customer Identifier" in Engati's
+// own Integrations screen) is a short number and is correct for the
+// Conversation History and Template APIs. This is a different, longer,
+// base64-looking token that only shows up in the top-level "botIdentifier"
+// field of a genuine (bot-flow-triggered, not manually agent-picked-up)
+// START_CHAT packet - e.g. "eyJib3RSZWYiOjE0NzkxNCwidXNlcnNCb3RSZWYiOjE0NzkxNH0="
+// decodes to {"botRef":147914,"usersBotRef":147914}. Every AGENT_MESSAGE
+// sent with ENGATI_CUSTOMER_ID here was silently accepted (200, real
+// messageId, errorCode:null) and never delivered - see ES-58715. See
+// SETUP.md for how to capture the real value on a new bot.
+var ENGATI_LIVECHAT_BOT_IDENTIFIER = null;
+// Each customer runs their OWN Catalyst project in their OWN Zoho account, but
+// they all load this one shared widget. So the Catalyst base URL cannot be
+// hardcoded - it must come from each org's own CRM Variables, exactly like the
+// Engati credentials do. Otherwise customer B's widget would call customer A's
+// Catalyst functions, which hold customer A's Engati credentials: wrong bot,
+// wrong messages, cross-customer data leak.
+//
+// The value below is only a fallback for the original org, which predates the
+// CATALYST_BASE_URL variable. Any NEW org must set that variable - see SETUP.md.
+// Note the data centre suffix (.in): a customer on the US/EU/AU DC gets an
+// entirely different domain, not just a different project name.
+var DEFAULT_CATALYST_BASE_URL = "https://project-rainfall-60081410942.catalystserverless.in";
+var CATALYST_PROXY_URL = DEFAULT_CATALYST_BASE_URL + "/server/whatsappProxy/";
+var LIVE_CHAT_SENDER_PROXY_URL = DEFAULT_CATALYST_BASE_URL + "/server/liveChatSender/";
+var FILE_UPLOAD_PROXY_URL = DEFAULT_CATALYST_BASE_URL + "/server/fileUpload/";
+var configReadyPromise = null;
+
+// Builds the three function endpoints from whatever base URL this org supplied.
+// Tolerates a trailing slash, and a value that already includes "/server".
+function applyCatalystBaseUrl(baseUrl){
+var base = String(baseUrl || '').trim().replace(/\/+$/, '');
+if(!base){ return false; }
+base = base.replace(/\/server$/, '');
+CATALYST_PROXY_URL = base + '/server/whatsappProxy/';
+LIVE_CHAT_SENDER_PROXY_URL = base + '/server/liveChatSender/';
+FILE_UPLOAD_PROXY_URL = base + '/server/fileUpload/';
+return true;
+}
+
+function loadConfigFromVariables(){
+  if(configReadyPromise){ return configReadyPromise; }
+  configReadyPromise = Promise.all([
+    ZOHO.CRM.API.getOrgVariable("ENGATI_CUSTOMER_ID"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_BOT_ID"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_API_KEY"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_INBOUND_MESSAGE_WEBHOOK_URL"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_INBOUND_API_KEY"),
+    ZOHO.CRM.API.getOrgVariable("CATALYST_BASE_URL"),
+    ZOHO.CRM.API.getOrgVariable("DEFAULT_COUNTRY_CODE"),
+    ZOHO.CRM.API.getOrgVariable("ENGATI_LIVECHAT_BOT_IDENTIFIER")
+  ]).then(function(results){
+    showDebug('getOrgVariable raw response[0]: ' + JSON.stringify(results[0]).slice(0,500));
+    showDebug('getOrgVariable raw response[1]: ' + JSON.stringify(results[1]).slice(0,500));
+    showDebug('getOrgVariable raw response[2]: ' + JSON.stringify(results[2]).slice(0,500));
+    ENGATI_CUSTOMER_ID = (results[0] && results[0].Success && results[0].Success.Content) || null;
+    ENGATI_BOT_ID = (results[1] && results[1].Success && results[1].Success.Content) || null;
+    ENGATI_API_KEY = (results[2] && results[2].Success && results[2].Success.Content) || null;
+    // Optional - free-text/attachments simply stay unavailable (not a hard
+    // failure) if these aren't set for this org yet.
+    ENGATI_INBOUND_MESSAGE_WEBHOOK_URL = (results[3] && results[3].Success && results[3].Success.Content) || null;
+    ENGATI_INBOUND_API_KEY = (results[4] && results[4].Success && results[4].Success.Content) || null;
+    // Point this org's widget at this org's own Catalyst project.
+    var catalystBaseUrl = (results[5] && results[5].Success && results[5].Success.Content) || null;
+    if(applyCatalystBaseUrl(catalystBaseUrl)){
+      showDebug('CATALYST_BASE_URL from org variable: ' + catalystBaseUrl);
+    } else {
+      showDebug('WARNING: CATALYST_BASE_URL not set for this org - falling back to ' + DEFAULT_CATALYST_BASE_URL + '. Every org except the original one MUST set this variable, or it will call the wrong customer\'s Catalyst functions. See SETUP.md.');
+    }
+    // Country code applied only to phone numbers stored without one.
+    var countryCode = (results[6] && results[6].Success && results[6].Success.Content) || null;
+    if(countryCode){
+      DEFAULT_COUNTRY_CODE = String(countryCode).replace(/[^0-9]/g, '') || DEFAULT_COUNTRY_CODE;
+      showDebug('DEFAULT_COUNTRY_CODE from org variable: ' + DEFAULT_COUNTRY_CODE);
+    } else {
+      showDebug('DEFAULT_COUNTRY_CODE not set - defaulting to ' + DEFAULT_COUNTRY_CODE + ' (India). Orgs outside India must set this, or national-format numbers will get the wrong country code.');
+    }
+    // Distinct from ENGATI_CUSTOMER_ID - see the declaration comment above
+    // for why these are two different values despite both looking like "the
+    // bot ID". Free-text sending just stays unavailable (not a hard
+    // failure) if this isn't set yet, same as the inbound webhook URL.
+    ENGATI_LIVECHAT_BOT_IDENTIFIER = (results[7] && results[7].Success && results[7].Success.Content) || null;
+    if(!ENGATI_LIVECHAT_BOT_IDENTIFIER){
+      showDebug('ENGATI_LIVECHAT_BOT_IDENTIFIER not set - free-text sending will be accepted by Engati but silently never delivered. See SETUP.md.');
+    }
+    if(!ENGATI_CUSTOMER_ID || !ENGATI_BOT_ID || !ENGATI_API_KEY){
+      renderStatus('WhatsApp integration is not configured. Please set ENGATI_CUSTOMER_ID, ENGATI_BOT_ID and ENGATI_API_KEY under Setup > Developer Hub > Variables.');
+      throw new Error('Missing configuration variables');
+    }
+  }).catch(function(err){
+    renderStatus('Could not load WhatsApp configuration. Please check Setup > Developer Hub > Variables.');
+    throw err;
+  });
+  return configReadyPromise;
+}
+
+// How far before a local send we'll still accept a server message as being
+// that same message. Generous, because the server's clock and ours can drift
+// and Engati stamps the message when it processes it, not when we sent it.
+var ECHO_MATCH_TOLERANCE_MS = 5 * 60 * 1000;
+
+// Drops locally-echoed sends once the server confirms them, so a message
+// doesn't appear twice while polling catches up.
+//
+// The matching is one-to-one and timestamp-aware on purpose. A previous
+// version matched on text alone (`sm.text === lm.text`), which broke in two
+// user-visible ways:
+//   - Sending the same text twice: the first server copy matched BOTH local
+//     copies, so the second message vanished from the UI until the next poll.
+//   - Sending text that already exists earlier in the history (e.g. "hi"
+//     sent again days later): the old server message matched the new local
+//     one, so the new message disappeared immediately and looked unsent.
+// Now each server message can confirm at most one local message, and only
+// if it isn't older than that local send.
+function dropConfirmedLocalEchoes(localMsgs, serverMsgs){
+var claimed = {};
+return localMsgs.filter(function(lm){
+for(var i = 0; i < serverMsgs.length; i++){
+var sm = serverMsgs[i];
+if(claimed[i]) continue;
+if(sm.direction !== 'out') continue;
+if(sm.text !== lm.text) continue;
+// Reject server messages that predate this local send - those are older
+// history that merely happens to share the same text.
+if(sm.ts && lm.ts && sm.ts < lm.ts - ECHO_MATCH_TOLERANCE_MS) continue;
+claimed[i] = true;
+return false;
+}
+return true;
+});
+}
+
+function renderMerged(isInitial){ localSentMessages = dropConfirmedLocalEchoes(localSentMessages, lastMappedMessages); var merged = lastMappedMessages.concat(localSentMessages).sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); var signature2 = JSON.stringify(merged); showDebug('renderMerged: mapped='+lastMappedMessages.length+' local='+localSentMessages.length+' merged='+merged.length+' sigChanged='+(signature2!==lastSignature)); if(signature2 === lastSignature){ return; } var el2 = document.getElementById('messages'); var wasNearBottom2 = isInitial || isNearBottom(el2); lastSignature = signature2; renderMessages(merged); if(!wasNearBottom2){ el2.scrollTop = el2.scrollHeight - el2.clientHeight - 60; } } function isNearBottom(el){
+return (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
+}
+
+function fetchConversation(phone, isInitial){
+var url = "https://api.engati.ai/bot-api/v1.0/customer/" + ENGATI_CUSTOMER_ID + "/bot/" + ENGATI_BOT_ID + "/channel-user/" + phone + "/conversations?page_size=50";
+return ZOHO.CRM.HTTP.get({
+url: url,
+headers: { "Authorization": "Basic " + ENGATI_API_KEY }
+}).then(function(resp){
+var data = safeParse(resp);
+if(!data || data.error){
+if(isInitial){ renderStatus('Could not load conversation.'); }
+return;
+}
+var body = data.body || data.details || data;
+var bodyParsed = safeParse(body) || body;
+var list = (bodyParsed && (bodyParsed.conversations || bodyParsed.messages)) || data.conversations || data.messages || []; showDebug('fetchConversation: server list.length='+list.length+' status_code='+data.status_code);
+if(isInitial && list.length){ var lastOut = list.slice().reverse().find(function(m){ return m.sender==='bot'; }); if(lastOut){ showDebug('FULL raw bot message keys: ' + JSON.stringify(lastOut)); console.log('[Whatsyoo] FULL raw bot message keys:', JSON.stringify(lastOut)); } }
+var mapped = list.map(function(m){
+var display = toDisplayMessage(m);
+display.user_id = m.user_id || null;
+return display;
+});
+// WhatsApp's 24-hour customer-service-window rule: outside 24h since the
+// user's last inbound message, only template messages can be sent - free
+// text/AGENT_MESSAGE gets rejected. Engati's own error code for this is
+// 1002 USER_IS_OUTSIDE_CONVERSATION_WINDOW. We can't call that API to ask
+// in advance, so this banner is a same-side heuristic from the last
+// inbound message timestamp we've already fetched - a warning, not a
+// guarantee (Engati's own window calculation is the actual authority).
+var lastInboundTs = mapped.slice().reverse().find(function(m){ return m.direction === 'in' && m.ts; });
+updateWindowBanner(lastInboundTs ? lastInboundTs.ts : null);
+// Deliberately NOT capturing a user_id here any more - see the
+// currentEngatiUserId comment at the top of this file. The ids that
+// appear in /conversations for this bot are web-widget session UUIDs,
+// not the WhatsApp channel-user id, and addressing AGENT_MESSAGE to them
+// causes silent drops. The phone number is the correct target.
+lastMappedMessages = mapped; renderMerged(isInitial); return;
+if(signature === lastSignature){ return; }
+var el = document.getElementById('messages');
+var wasNearBottom = isInitial || isNearBottom(el);
+lastSignature = signature;
+renderMessages(mapped);
+if(!wasNearBottom){
+el.scrollTop = el.scrollHeight - el.clientHeight - 60;
+}
+}).catch(function(){
+if(isInitial){ renderStatus('Error loading conversation.'); }
+});
+}
+
+// True when the CRM value carried no country code of its own, so normalizePhone
+// had to fall back to DEFAULT_COUNTRY_CODE. That fallback can only ever assume
+// ONE country, so in an org that deals with several it is a guess - and a wrong
+// guess fails silently (Engati still returns SUCCESS and a wamid, the message
+// just never arrives). Surfacing it turns that into something an agent can see.
+// Mirrors normalizePhone's branches exactly - both places where it falls back
+// to DEFAULT_COUNTRY_CODE must be flagged here, including the leading-zero
+// trunk-prefix branch (an 11-digit "09061084736" also gets a country code
+// prepended, so a length check alone misses it).
+function countryCodeWasGuessed(rawPhone){
+var raw = String(rawPhone == null ? '' : rawPhone).trim();
+if(!raw) return false;
+if(/^\+/.test(raw) || /^00\d/.test(raw)) return false;
+var digits = raw.replace(/[^0-9]/g, '');
+if(!digits) return false;
+return /^0/.test(digits) || digits.length <= 10;
+}
+
+function updateCountryCodeBanner(rawPhone, normalised){
+var el = document.getElementById('countryBanner');
+if(!el) return;
+if(!countryCodeWasGuessed(rawPhone)){ el.style.display = 'none'; return; }
+el.textContent = '⚠ "' + rawPhone + '" has no country code, so +' + DEFAULT_COUNTRY_CODE
+  + ' was assumed → +' + normalised + '. If this contact is in another country, '
+  + 'fix the number in CRM (store it with a leading +) or the message will silently not arrive.';
+el.style.display = 'block';
+}
+
+function loadConversation(phone){
+renderStatus('Loading conversation...');
+var rawPhone = phone;
+phone = normalizePhone(phone);
+updateCountryCodeBanner(rawPhone, phone);
+currentPhone = phone;
+if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+fetchConversation(phone, true).then(function(){
+pollTimer = setInterval(function(){ fetchConversation(phone, false); }, POLL_INTERVAL_MS);
+});
+}
+
+// NOTE: /broadcast (the old direct-to-Engati free-text call) is permanently
+// blocked without Engati's paid External Live Chat add-on - confirmed via
+// support ticket ES-58564. This function now goes through the AGENT_MESSAGE
+// path instead (see catalyst-functions/liveChatSender/), which is the
+// mechanism Engati's docs describe for that feature. It will fail until
+// External Live Chat is confirmed enabled for this org's bot AND this org
+// has set ENGATI_INBOUND_MESSAGE_WEBHOOK_URL - that's expected, not a bug,
+// for orgs that haven't set that up yet.
+function sendFreeTextMessage(phone, text, media){
+if(!ENGATI_INBOUND_MESSAGE_WEBHOOK_URL){
+return Promise.resolve(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'Free-text sending is not configured for this org. Set ENGATI_INBOUND_MESSAGE_WEBHOOK_URL under Setup > Developer Hub > Variables once Engati confirms External Live Chat is enabled.' }) }));
+}
+// AGENT_MESSAGE targets the WhatsApp channel-user id, which for this
+// bot IS the plain phone number (e.g. "919061084736") - verified against
+// real inbound webhook packets in the LiveChatEvents table, where every
+// platform:"dialog360" (WhatsApp) row carries the phone number as
+// user_id. Only platform:"web" rows (web chat widget test sessions)
+// carry UUIDs. See the currentEngatiUserId comment at the top of this
+// file for the full history of getting this wrong.
+var targetUserId = currentEngatiUserId || phone;
+// platform must match the channel Engati actually uses for this
+// conversation. This bot's WhatsApp channel reports as "dialog360" (the
+// BSP), not the generic "whatsapp" that liveChatSender defaults to -
+// again taken from real inbound packets rather than assumed, since a bot
+// on a different WhatsApp provider would report a different value.
+var targetPlatform = currentEngatiPlatform || 'dialog360';
+// botIdentifier must be ENGATI_LIVECHAT_BOT_IDENTIFIER, NOT
+// ENGATI_CUSTOMER_ID - see the ENGATI_LIVECHAT_BOT_IDENTIFIER declaration
+// comment near the top of this file. Engati silently accepts and drops
+// AGENT_MESSAGE packets that carry the wrong one (confirmed by testing,
+// not documented - ES-58715). See catalyst-functions/liveChatSender/index.js.
+var body = { action: 'sendAgentMessage', phone: targetUserId, platform: targetPlatform, botKey: ENGATI_BOT_ID, botIdentifier: ENGATI_LIVECHAT_BOT_IDENTIFIER, inboundMessageWebhookUrl: ENGATI_INBOUND_MESSAGE_WEBHOOK_URL };
+if(ENGATI_INBOUND_API_KEY){ body.inboundApiKey = ENGATI_INBOUND_API_KEY; }
+if(text){ body.text = text; }
+if(media && media.value){ body.media = { value: media.value, mimeType: media.mimeType }; }
+showDebug('sendAgentMessage outgoing body: ' + JSON.stringify(body).slice(0,500));
+// Content-Type is deliberately text/plain, not application/json: Catalyst's
+// Advanced I/O gateway answers the browser's CORS preflight (OPTIONS) itself,
+// before our function code runs, with no Access-Control-Allow-* headers.
+// (Correction, Aug 10 2026: an earlier version of this comment claimed API
+// Gateway "isn't enabled here" and could fix this if it were - API Gateway
+// IS enabled on this project, confirmed while debugging why a brand-new
+// function's URL 404'd until it got its own API Gateway route, see
+// SETUP.md's Phase 3 step 9 callout. Whether reconfiguring routes through
+// API Gateway would also fix this CORS issue was never actually tested -
+// the text/plain workaround below works regardless, so there was no reason
+// to change a working thing.) application/json is a "non-simple" content-type
+// that forces a preflight, which then gets blocked. text/plain is "simple"
+// and skips preflight entirely, going straight to the real POST - whose
+// response headers ARE correct (confirmed via curl). The function still
+// JSON.parse()s the body regardless of declared content-type, so this needs
+// no server-side change. See same fix on sendTemplateViaProxy()/CATALYST_PROXY_URL below.
+return fetch(LIVE_CHAT_SENDER_PROXY_URL, {
+method: 'POST',
+headers: { 'Content-Type': 'text/plain' },
+body: JSON.stringify(body)
+}).then(function(r){ return r.text(); });
+}
+var templatesById = {};
+
+function loadTemplates(){
+var select = document.getElementById('templateSelect');
+return ZOHO.CRM.API.getAllRecords({Entity:'WhatsApp_Templates', sort_order:'asc', per_page:200}).then(function(res){
+var records = (res && res.data) || [];
+showDebug('loadTemplates: fetched '+records.length+' record(s)');
+templatesById = {};
+select.innerHTML = '<option value="">Send a template...</option>';
+records.forEach(function(rec){
+var active = rec.Is_Active;
+if(active === false || active === 'false'){ return; }
+if(!rec.Template_Name){ return; }
+templatesById[rec.id] = rec;
+var opt = document.createElement('option');
+opt.value = rec.id;
+opt.textContent = rec.Name || rec.Template_Name;
+select.appendChild(opt);
+});
+showDebug('loadTemplates: '+Object.keys(templatesById).length+' active template(s) added to dropdown');
+}).catch(function(err){
+showDebug('loadTemplates ERROR: '+((err&&(err.message||JSON.stringify(err)))||'unknown'));
+select.innerHTML = '<option value="">(templates error: '+((err&&(err.message||JSON.stringify(err)))||'unknown')+')</option>';
+});
+}
+
+function renderTemplateParams(rec){
+var wrap = document.getElementById('templateParams');
+wrap.innerHTML = '';
+if(!rec){ return; }
+var langs = (rec.Available_Languages || '').split(';').map(function(s){return s.trim();}).filter(Boolean);
+if(langs.length > 1){
+var langSelect = document.createElement('select');
+langSelect.id = 'tplLanguageSelect';
+langs.forEach(function(code){
+var opt = document.createElement('option');
+opt.value = code;
+opt.textContent = code;
+if(code === (rec.Language_Code || '')){ opt.selected = true; }
+langSelect.appendChild(opt);
+});
+wrap.appendChild(langSelect);
+}
+var headerType = rec.Header_Type;
+if(headerType && headerType !== 'None'){
+var hInput = document.createElement('input');
+hInput.type = 'text';
+hInput.id = 'tplHeaderValue';
+hInput.placeholder = headerType + ' URL';
+hInput.value = rec.Header_Value || '';
+wrap.appendChild(hInput);
+}
+var count = parseInt(rec.Body_Param_Count, 10) || 0;
+var labels = (rec.Body_Param_Labels || '').split(',').map(function(s){return s.trim();});
+for(var i=0;i<count;i++){
+var pInput = document.createElement('input');
+pInput.type = 'text';
+pInput.className = 'tplBodyParam';
+pInput.placeholder = labels[i] || ('Parameter ' + (i+1));
+wrap.appendChild(pInput);
+}
+}
+
+function buildTemplatePayload(rec){
+var components = [];
+var headerType = rec.Header_Type;
+if(headerType && headerType !== 'None'){
+var headerVal = (document.getElementById('tplHeaderValue') || {}).value || rec.Header_Value || '';
+var headerKey = headerType.toLowerCase();
+var headerParam = { type: headerKey };
+headerParam[headerKey] = { link: headerVal };
+components.push({ type: 'header', parameters: [headerParam] });
+}
+var count = parseInt(rec.Body_Param_Count, 10) || 0;
+if(count > 0){
+var paramInputs = document.querySelectorAll('.tplBodyParam');
+var bodyParams = [];
+for(var i=0;i<count;i++){
+bodyParams.push({ type:'text', text: (paramInputs[i] && paramInputs[i].value) || '' });
+}
+components.push({ type:'body', parameters: bodyParams });
+}
+var flowKeys = (rec.Button_Flow_Keys || '').split(';').map(function(s){return s.trim();}).filter(Boolean);
+var startIdx = parseInt(rec.Button_Start_Index, 10) || 0;
+flowKeys.forEach(function(key, idx){
+components.push({
+index: startIdx + idx,
+sub_type: 'quick_reply',
+type: 'button',
+parameters: [{ type:'payload', payload: key }]
+});
+});
+return {
+name: rec.Template_Name,
+components: components,
+language: { code: (document.getElementById('tplLanguageSelect') || {}).value || rec.Language_Code || 'en', policy: 'deterministic' }
+};
+}
+
+function sendTemplateMessage(phone, rec){
+var url = "https://api.engati.ai/whatsapp-api/v1.0/customer/" + ENGATI_CUSTOMER_ID + "/bot/" + ENGATI_BOT_ID + "/template"; return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); });
+var body = {
+phoneNumber: '+' + phone,
+payload: buildTemplatePayload(rec)
+};
+return ZOHO.CRM.HTTP.post({
+url: url,
+headers: { "Authorization": "Basic " + ENGATI_API_KEY, "Content-Type": "application/json" },
+body: (function(){ showDebug('outgoing body (raw object, with content-type header): ' + JSON.stringify(body).slice(0,500)); return body; })()
+});
+}
+
+function sendTemplateViaProxy(phone, rec){ return fetch(CATALYST_PROXY_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'sendTemplate', phone: phone, templatePayload: buildTemplatePayload(rec) }) }).then(function(r){ return r.text(); }); } document.getElementById('templateSelect').addEventListener('change', function(){
+var rec = templatesById[this.value];
+renderTemplateParams(rec);
+});
+
+document.getElementById('templateBtn').addEventListener('click', function(){
+var select = document.getElementById('templateSelect');
+var rec = templatesById[select.value];
+if(!rec || !currentPhone){ return; }
+var btn = document.getElementById('templateBtn');
+btn.disabled = true;
+var prevLabel = btn.textContent;
+btn.textContent = 'Sending...';
+pausePolling();
+sendTemplateViaProxy(currentPhone, rec).then(function(resp){
+var data = safeParse(resp);
+var inner = data && safeParse(data.body); var failed = !(data && data.statusCode === 200 && inner && inner.status && inner.status.code === 1000);
+btn.disabled = false;
+btn.textContent = prevLabel;
+resumePolling();
+if(failed){
+alert('Could not send template. Check the template configuration in the WhatsApp Templates module.');
+return;
+}
+localSentMessages.push({ direction:'out', kind:'text', text: '[Template] ' + (rec.Name || rec.Template_Name || ''), time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('templateBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); select.value = '';
+document.getElementById('templateParams').innerHTML = '';
+fetchConversation(currentPhone, false);
+}).catch(function(){
+btn.disabled = false;
+btn.textContent = prevLabel;
+resumePolling();
+alert('Could not send template. Check the template configuration in the WhatsApp Templates module.');
+});
+});
+
+document.getElementById('brandHeader').addEventListener('click', function(){
+this.classList.toggle('collapsed');
+});
+
+ZOHO.embeddedApp.on('PageLoad',function(data){
+var entityId = data && (Array.isArray(data.EntityId)?data.EntityId[0]:data.EntityId);
+var entity = (data && data.Entity) || 'Leads';
+if(!entityId){renderStatus('No record context found.');return;}
+renderStatus('Loading configuration...');
+loadConfigFromVariables().then(function(){
+loadTemplates();
+return ZOHO.CRM.API.getRecord({Entity:entity,RecordID:entityId});
+}).then(function(res){
+var rec=res && res.data && res.data[0];
+var phone=rec && (rec.Phone||rec.Mobile);
+if(phone){loadConversation(phone);}else{renderStatus('No phone number on this record.');}
+}).catch(function(){});
+});
+function showDebug(text){
+var el = document.getElementById('debugBox');
+if(!el){
+var wrap = document.createElement('div'); wrap.id = 'debugWrap'; wrap.className = 'collapsed'; wrap.style.cssText = 'border-top:2px solid red;background:#111;flex:0 0 auto;';
+var header = document.createElement('div'); header.id = 'debugHeader'; header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:4px 8px;font-size:11px;color:#f66;cursor:pointer;font-family:monospace;';
+var headerLabel = document.createElement('span'); headerLabel.textContent = 'Debug log';
+var headerChevron = document.createElement('span'); headerChevron.id = 'debugChevron'; headerChevron.textContent = '▶'; headerChevron.style.cssText = 'transition:transform 0.15s ease;';
+header.appendChild(headerLabel); header.appendChild(headerChevron);
+var body = document.createElement('div'); body.id = 'debugBody'; body.style.cssText = 'display:none;';
+header.onclick = function(){
+var collapsed = wrap.classList.toggle('collapsed');
+body.style.display = collapsed ? 'none' : '';
+headerChevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(90deg)';
+};
+el = document.createElement('pre');
+el.id = 'debugBox';
+el.style.cssText = 'white-space:pre-wrap;word-break:break-all;background:#111;color:#0f0;font-size:11px;padding:8px;max-height:200px;overflow:auto;margin:0;';
+var copyBtn = document.createElement('button'); copyBtn.id = 'debugCopyBtn'; copyBtn.textContent = 'Copy log'; copyBtn.style.cssText = 'margin:4px 8px;padding:2px 8px;font-size:11px;background:#222;color:#0f0;border:1px solid #0f0;cursor:pointer;'; copyBtn.onclick = function(){ var txt = el.textContent; function done(ok){ copyBtn.textContent = ok ? 'Copied!' : 'Copy failed'; setTimeout(function(){ copyBtn.textContent = 'Copy log'; }, 1500); } if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){ done(true); }).catch(function(){ done(false); }); } else { var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); var ok = false; try{ ok = document.execCommand('copy'); }catch(e){} document.body.removeChild(ta); done(ok); } }; body.appendChild(copyBtn); var clearBtn = document.createElement('button'); clearBtn.id = 'debugClearBtn'; clearBtn.textContent = 'Clear log'; clearBtn.style.cssText = 'margin:4px 8px;padding:2px 8px;font-size:11px;background:#222;color:#f66;border:1px solid #f66;cursor:pointer;'; clearBtn.onclick = function(){ el.textContent = ''; }; body.appendChild(clearBtn);  body.appendChild(el);
+wrap.appendChild(header); wrap.appendChild(body);
+document.getElementById('chat-root').appendChild(wrap);
+}
+el.textContent += (new Date()).toISOString().slice(11,19) + ' ' + text + String.fromCharCode(10); el.scrollTop = el.scrollHeight;
+}
+function pausePolling(){
+if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
+}
+function resumePolling(){
+if(!pollTimer && currentPhone){
+pollTimer = setInterval(function(){ fetchConversation(currentPhone, false); }, POLL_INTERVAL_MS);
+}
+}
+// Attachment UI (free-text side). Two ways to fill attachUrl: paste a URL
+// directly (original, still works for an already-hosted file), or upload a
+// file from this device via fileUpload (Catalyst function -> Zoho WorkDrive
+// -> public download URL - see catalyst-functions/fileUpload/index.js for
+// the full recipe).
+//
+// lastUploadedAttachment tracks the real MIME type of a device-uploaded
+// file, separately from attachUrl's text value. This matters because
+// mimeTypeForPacketType() below guesses MIME type from the URL's file
+// extension - which works for a hand-pasted URL like ".../photo.jpg", but
+// WorkDrive's download URLs have no extension at all (just a query
+// string), so that guess would silently fall back to a category default
+// (e.g. always "image/jpeg" for IMAGE) regardless of the file's real type.
+// That's the same class of mismatch as Meta error 131053 (see
+// mimeTypeForPacketType's own comment) - so for an uploaded file, the
+// verified real MIME type from the upload response is used instead of
+// re-guessing. Cleared whenever attachUrl no longer matches the uploaded
+// URL (manual edit, clear, or after a successful send), so a stale
+// verified type can never get attached to a different URL.
+var lastUploadedAttachment = null;
+
+document.getElementById('attachToggleBtn').addEventListener('click', function(){
+var row = document.getElementById('attachRow');
+var willShow = row.classList.contains('hidden') || !row.classList.contains('open');
+row.classList.toggle('open');
+this.classList.toggle('active');
+});
+
+// Emoji picker - a small curated set rather than a full library, since
+// this project deliberately avoids npm/CDN dependencies (see file header
+// conventions elsewhere) and a WhatsApp composer doesn't need the full
+// Unicode emoji range, just the common chat ones.
+var EMOJI_LIST = ['😀','😃','😄','😁','😊','🙂','😉','😍','😘','😜','🤔','😐','😴','😢','😭','😡','👍','👎','👏','🙏','🤝','❤️','🔥','🎉','✅','❌','😅','😇','🥰','😎','🤗','😬','😳','🥳','🤩','📞','💬','🙌','😞','😱'];
+(function(){
+var panel = document.getElementById('emojiPanel');
+EMOJI_LIST.forEach(function(emoji){
+var btn = document.createElement('button');
+btn.type = 'button';
+btn.textContent = emoji;
+btn.addEventListener('click', function(){
+var input = document.getElementById('msgInput');
+var start = input.selectionStart == null ? input.value.length : input.selectionStart;
+var end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
+input.value = input.value.slice(0, start) + emoji + input.value.slice(end);
+var caret = start + emoji.length;
+input.focus();
+input.setSelectionRange(caret, caret);
+});
+panel.appendChild(btn);
+});
+})();
+document.getElementById('emojiBtn').addEventListener('click', function(e){
+e.stopPropagation();
+document.getElementById('emojiPanel').classList.toggle('open');
+this.classList.toggle('active');
+});
+
+// Text formatting toolbar - wraps the current selection (or drops empty
+// markers at the cursor if nothing is selected) in msgInput with
+// WhatsApp's own markdown-style syntax. WhatsApp renders *bold*,
+// _italic_, ~strike~ and ```monospace``` itself on the recipient's
+// device once the message arrives as plain text - nothing else in this
+// pipeline (AGENT_MESSAGE body, Engati, WhatsApp) needs to know these
+// markers exist.
+var FORMAT_MARKERS = { bold: '*', italic: '_', strike: '~', mono: '```' };
+document.querySelectorAll('#formatPanel button[data-fmt]').forEach(function(btn){
+btn.addEventListener('click', function(){
+var marker = FORMAT_MARKERS[this.getAttribute('data-fmt')];
+var input = document.getElementById('msgInput');
+var start = input.selectionStart == null ? input.value.length : input.selectionStart;
+var end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
+var selected = input.value.slice(start, end);
+input.value = input.value.slice(0, start) + marker + selected + marker + input.value.slice(end);
+// With a selection, land the cursor right after the closing marker;
+// with none, land it between the two markers so typing continues
+// formatted from there.
+var caret = selected ? (start + marker.length * 2 + selected.length) : (start + marker.length);
+input.focus();
+input.setSelectionRange(caret, caret);
+document.getElementById('formatPanel').classList.remove('open');
+document.getElementById('formatBtn').classList.remove('active');
+});
+});
+document.getElementById('formatBtn').addEventListener('click', function(e){
+e.stopPropagation();
+document.getElementById('formatPanel').classList.toggle('open');
+this.classList.toggle('active');
+});
+
+// Auto-grow the textarea as the user types multi-line messages (now
+// possible via Shift+Enter, see the keydown listener below) - capped by
+// #msgInput's CSS max-height, beyond which it scrolls internally instead
+// of growing forever. Reset to 'auto' first so shrinking (e.g. after
+// deleting a line) is picked up too, not just growth.
+document.getElementById('msgInput').addEventListener('input', function(){
+this.style.height = 'auto';
+this.style.height = this.scrollHeight + 'px';
+});
+
+// Close either popup on any click outside it, same pattern as a typical
+// dropdown - without this they'd stay open until something else toggled
+// them.
+document.addEventListener('click', function(e){
+var emojiPanel = document.getElementById('emojiPanel');
+var emojiBtn = document.getElementById('emojiBtn');
+if(!emojiPanel.contains(e.target) && e.target !== emojiBtn){
+emojiPanel.classList.remove('open');
+emojiBtn.classList.remove('active');
+}
+var formatPanel = document.getElementById('formatPanel');
+var formatBtn = document.getElementById('formatBtn');
+if(!formatPanel.contains(e.target) && e.target !== formatBtn){
+formatPanel.classList.remove('open');
+formatBtn.classList.remove('active');
+}
+});
+document.getElementById('attachClearBtn').addEventListener('click', function(){
+document.getElementById('attachUrl').value = '';
+document.getElementById('attachType').value = 'IMAGE';
+document.getElementById('attachRow').classList.remove('open');
+document.getElementById('attachToggleBtn').classList.remove('active');
+lastUploadedAttachment = null;
+});
+// A manual edit to the URL field means whatever was uploaded no longer
+// necessarily matches what's in the box - stop trusting its MIME type.
+document.getElementById('attachUrl').addEventListener('input', function(){
+lastUploadedAttachment = null;
+});
+
+function readFileAsBase64(file){
+return new Promise(function(resolve, reject){
+var reader = new FileReader();
+reader.onload = function(){
+var result = String(reader.result || '');
+var comma = result.indexOf(',');
+resolve(comma === -1 ? result : result.slice(comma + 1));
+};
+reader.onerror = function(){ reject(reader.error || new Error('file read failed')); };
+reader.readAsDataURL(file);
+});
+}
+
+function attachTypeForMime(mimeType){
+if(mimeType && mimeType.indexOf('video') === 0) return 'VIDEO';
+if(mimeType && mimeType.indexOf('audio') === 0) return 'AUDIO';
+return 'IMAGE';
+}
+
+// Same text/plain CORS-bypass as every other Catalyst call in this file -
+// see the comment on sendFreeTextMessage's fetch() for why.
+function uploadAttachmentFile(file){
+return readFileAsBase64(file).then(function(dataBase64){
+return fetch(FILE_UPLOAD_PROXY_URL, {
+method: 'POST',
+headers: { 'Content-Type': 'text/plain' },
+body: JSON.stringify({ filename: file.name, mimeType: file.type, dataBase64: dataBase64 })
+});
+}).then(function(r){ return r.text(); });
+}
+
+document.getElementById('attachUploadBtn').addEventListener('click', function(){
+document.getElementById('attachFileInput').click();
+});
+document.getElementById('attachFileInput').addEventListener('change', function(){
+var fileInput = this;
+var file = fileInput.files && fileInput.files[0];
+if(!file) return;
+var uploadBtn = document.getElementById('attachUploadBtn');
+var prevLabel = uploadBtn.textContent;
+uploadBtn.disabled = true;
+uploadBtn.textContent = 'Uploading...';
+uploadAttachmentFile(file).then(function(resp){
+var data = safeParse(resp);
+showDebug('fileUpload RAW RESPONSE: ' + JSON.stringify(resp).slice(0,1000));
+var body = data && data.body ? safeParse(data.body) : null;
+uploadBtn.disabled = false;
+uploadBtn.textContent = prevLabel;
+fileInput.value = '';
+if(!(data && data.statusCode === 200 && body && body.url)){
+showDebug('fileUpload FAILED: ' + ((body && body.error) || 'upload failed'));
+return;
+}
+var url = body.url;
+var mimeType = body.mimeType || file.type || '';
+document.getElementById('attachUrl').value = url;
+document.getElementById('attachType').value = attachTypeForMime(mimeType);
+lastUploadedAttachment = { url: url, mimeType: mimeType };
+document.getElementById('attachRow').classList.add('open');
+document.getElementById('attachToggleBtn').classList.add('active');
+}).catch(function(err){
+uploadBtn.disabled = false;
+uploadBtn.textContent = prevLabel;
+fileInput.value = '';
+showDebug('fileUpload CATCH ERROR: ' + (err && err.message));
+});
+});
+
+document.getElementById('sendBtn').addEventListener('click',function(){
+var input=document.getElementById('msgInput');
+var text=input.value.trim();
+var attachUrlInput = document.getElementById('attachUrl');
+var attachUrl = attachUrlInput.value.trim();
+var attachType = document.getElementById('attachType').value;
+// Prefer the verified MIME type from a device upload over guessing from the
+// URL's extension - WorkDrive download URLs have none. See
+// lastUploadedAttachment's declaration comment above for why this matters.
+var uploadedMime = (lastUploadedAttachment && lastUploadedAttachment.url === attachUrl) ? lastUploadedAttachment.mimeType : null;
+var media = attachUrl ? { value: attachUrl, mimeType: uploadedMime || mimeTypeForPacketType(attachType, attachUrl) } : null;
+if(!text && !media)return;
+if(!currentPhone){ return; }
+var btn=document.getElementById('sendBtn');
+btn.disabled=true;
+var prevLabel=btn.textContent;
+btn.textContent='Sending...';
+pausePolling();
+sendFreeTextMessage(currentPhone, text, media).then(function(resp){
+var data=safeParse(resp);
+showDebug('RAW RESPONSE: ' + JSON.stringify(resp).slice(0,3000));
+var failed = !!(data && ((data.statusCode && data.statusCode>=400) || (data.status_code && data.status_code>=400) || (data.status && data.status>=400) || data.error || data.type==='about:blank' || (data.body && safeParse(data.body) && (safeParse(data.body).error || (safeParse(data.body).status && safeParse(data.body).status>=400)))));
+btn.disabled=false;
+btn.textContent=prevLabel;
+resumePolling();
+if(failed){
+return;
+}
+localSentMessages.push({ direction:'out', kind: media ? 'media' : 'text', mediaUrl: media ? media.value : null, mediaKind: media ? mediaKindFor(media.value, attachType) : null, text: text || '', time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('sendBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); input.value=''; input.style.height='auto';
+attachUrlInput.value=''; document.getElementById('attachRow').classList.remove('open'); document.getElementById('attachToggleBtn').classList.remove('active');
+lastUploadedAttachment = null;
+fetchConversation(currentPhone, false);
+}).catch(function(err){
+btn.disabled=false;
+btn.textContent=prevLabel;
+resumePolling();
+showDebug('CATCH ERROR: name=' + (err && err.name) + ' message=' + (err && err.message) + ' stack=' + (err && err.stack ? String(err.stack).slice(0,500) : 'none'));
+});
+});
+var WINDOW_MS = 24 * 60 * 60 * 1000;
+function updateWindowBanner(lastInboundTsMs){
+var el = document.getElementById('windowBanner');
+if(!el) return;
+if(!lastInboundTsMs){ el.style.display = 'none'; return; }
+var age = Date.now() - lastInboundTsMs;
+if(age > WINDOW_MS){
+var hours = Math.floor(age / (60 * 60 * 1000));
+el.textContent = '⚠ It\'s been ' + hours + 'h since the customer last messaged. Free-text replies may fail outside WhatsApp\'s 24-hour window - use a template instead.';
+el.style.display = 'block';
+} else {
+el.style.display = 'none';
+}
+}
+// Derive the MIME type from the file URL's actual extension rather than
+// assuming one per category. The previous version returned a hardcoded
+// 'image/jpeg' for ANY image, so attaching a .png declared the wrong type -
+// the same mismatch class as Meta error 131053 (Media Upload Error), which
+// silently killed template delivery until we found it via Engati support.
+// Falls back to the category default when the extension is missing or
+// unrecognised (e.g. a URL with no extension, or a redirect/CDN link).
+var MIME_BY_EXTENSION = {
+jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+mp4: 'video/mp4', '3gp': 'video/3gpp',
+mp3: 'audio/mpeg', ogg: 'audio/ogg', m4a: 'audio/mp4', amr: 'audio/amr', aac: 'audio/aac'
+};
+var MIME_CATEGORY_DEFAULT = { IMAGE: 'image/jpeg', VIDEO: 'video/mp4', AUDIO: 'audio/mpeg' };
+function extensionOf(url){
+// Strip query string and fragment before reading the extension, so
+// ".../logo.png?v=2" doesn't come out as "png?v=2".
+var clean = String(url || '').split('#')[0].split('?')[0];
+var lastSegment = clean.substring(clean.lastIndexOf('/') + 1);
+var dot = lastSegment.lastIndexOf('.');
+return dot === -1 ? '' : lastSegment.substring(dot + 1).toLowerCase();
+}
+function mimeTypeForPacketType(t, url){
+var fromExt = MIME_BY_EXTENSION[extensionOf(url)];
+// Only trust the extension if it agrees with the category the user picked -
+// otherwise a mislabelled URL (e.g. .mp4 selected as IMAGE) would send a
+// contradictory packetType/mimeType pair, which WhatsApp also rejects.
+var expectedPrefix = (t === 'VIDEO' ? 'video/' : t === 'AUDIO' ? 'audio/' : 'image/');
+if(fromExt && fromExt.indexOf(expectedPrefix) === 0){ return fromExt; }
+return MIME_CATEGORY_DEFAULT[t] || 'image/jpeg';
+}
+// Enter key in the message box triggers the same Send click, matching
+// WhatsApp's own composer. Shift+Enter is deliberately NOT prevented -
+// msgInput is now a <textarea> (see index.html), so the browser's default
+// behaviour for Shift+Enter (insert a newline) fires on its own; the
+// auto-grow listener above then resizes the box to fit.
+document.getElementById('msgInput').addEventListener('keydown', function(e){
+if(e.key === 'Enter' && !e.shiftKey){
+e.preventDefault();
+document.getElementById('sendBtn').click();
+}
+});
+ZOHO.embeddedApp.init();

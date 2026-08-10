@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whatsyoo</title>
+<link rel="stylesheet" href="style.css?v=20260811a">
+<script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
+</head>
+<body>
+  <div id="chat-root">
+    <div id="brandHeader">
+      <img id="brandLogo" src="https://whatsyoo.com/wp-content/uploads/2023/11/whatsyoo.png" alt="Whatsyoo" />
+      <div id="brandText">
+        <span id="brandName">Whatsyoo</span>
+        <span id="brandTagline">WhatsApp for Zoho CRM</span>
+      </div>
+      <span id="brandToggle">&#9660;</span>
+    </div>
+    <div id="messages"><div class="status">Loading conversation...</div></div>
+    <div id="countryBanner" style="display:none;"></div>
+    <div id="windowBanner" style="display:none;"></div>
+    <div id="composer">
+      <div id="templateRow">
+        <select id="templateSelect"><option value="">Send a template...</option></select>
+        <button id="templateBtn">Use template</button>
+      </div>
+      <div id="templateParams"></div>
+      <div id="attachRow">
+        <select id="attachType">
+          <option value="IMAGE">Image</option>
+          <option value="VIDEO">Video</option>
+          <option value="AUDIO">Audio</option>
+        </select>
+        <input id="attachUrl" type="text" placeholder="Attachment URL (image/video/audio)" />
+        <button id="attachUploadBtn" type="button" title="Upload a file from this device">Upload file&hellip;</button>
+        <button id="attachClearBtn" type="button" title="Remove attachment">✕</button>
+      </div>
+      <input id="attachFileInput" type="file" accept="image/*,video/*,audio/*" style="display:none;" />
+      <div id="composerRow">
+        <button id="attachToggleBtn" type="button" title="Attach image, video, or audio">📎</button>
+        <div id="formatWrap">
+          <button id="formatBtn" type="button" title="Text formatting">Aa</button>
+          <div id="formatPanel">
+            <button type="button" data-fmt="bold" title="Bold"><b>B</b></button>
+            <button type="button" data-fmt="italic" title="Italic"><i>I</i></button>
+            <button type="button" data-fmt="strike" title="Strikethrough"><s>S</s></button>
+            <button type="button" data-fmt="mono" title="Monospace">&lt;/&gt;</button>
+          </div>
+        </div>
+        <div id="msgInputWrap">
+          <textarea id="msgInput" placeholder="Type a message" rows="1"></textarea>
+          <button id="emojiBtn" type="button" title="Insert emoji">😊</button>
+          <div id="emojiPanel"></div>
+        </div>
+        <button id="sendBtn">Send</button>
+      </div>
+      <div id="composerNote">Messaging requires Whatsyoo's External Live Chat add-on, configured per org.</div>
+    </div>
+  </div>
+  <script src="app.js?v=20260811a"></script>
+</body>
+</html>

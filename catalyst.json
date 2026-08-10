@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "targets": [
+      "fileUpload",
+      "liveChatSender",
+      "liveChatWebhook"
+    ],
+    "ignore": [],
+    "source": "functions"
+  }
+}
