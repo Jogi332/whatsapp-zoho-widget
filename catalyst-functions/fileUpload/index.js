@@ -421,11 +421,27 @@ function streamMedia(req, res) {
 }
 
 // WhatsApp's own per-type media ceilings (images 5MB, audio/video 16MB,
-// documents 100MB) are the real limit that matters, but Catalyst's Advanced
-// I/O request-body limit is untested and likely smaller - capping well
-// below all of those until proven otherwise avoids a confusing mid-request
-// failure. Base64 inflates size ~33%, so this caps the DECODED size.
-var MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+// documents 100MB) are the real limit that matters in theory - but
+// Catalyst's Advanced I/O request-body handling has an actual, now-TESTED
+// ceiling of its own that's much lower than any of those. Confirmed via
+// direct testing (Aug 11 2026): a 25MB raw file uploads and gets a clean
+// 413 rejection as expected; a 28MB raw file makes the function return a
+// bare HTTP 200 with an EMPTY body (no JSON, not even an error) - the
+// platform silently kills/truncates the request somewhere between those
+// two sizes, almost certainly because this function fully buffers the
+// whole file in memory (readBody() + Buffer.from(base64)) rather than
+// streaming it. This means WhatsApp's real 100MB document ceiling is NOT
+// achievable with this function's current architecture - would need a
+// genuine rewrite to stream/chunk the upload instead of buffering it
+// whole, not attempted here. Base64 inflates wire size ~33%, so these
+// constants cap the DECODED size, with real margin kept below the ~25-28MB
+// point where things start breaking silently.
+var MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // images/audio/video
+var MAX_DOCUMENT_UPLOAD_BYTES = 20 * 1024 * 1024; // documents (PDF etc.) - see [[workdrive-attachment-research-unfinished]] persistent notes for the DOCUMENT packetType finding this supports
+
+function uploadCapFor(mimeType) {
+  return (mimeType === 'application/pdf') ? MAX_DOCUMENT_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
+}
 
 function handleUpload(req, res) {
   var headers = {
@@ -463,9 +479,10 @@ function handleUpload(req, res) {
       res.end(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'file is empty' }) }));
       return;
     }
-    if (buffer.length > MAX_UPLOAD_BYTES) {
+    var cap = uploadCapFor(mimeType);
+    if (buffer.length > cap) {
       res.writeHead(200, headers);
-      res.end(JSON.stringify({ statusCode: 413, body: JSON.stringify({ error: 'file too large - max ' + Math.round(MAX_UPLOAD_BYTES / 1024 / 1024) + 'MB' }) }));
+      res.end(JSON.stringify({ statusCode: 413, body: JSON.stringify({ error: 'file too large - max ' + Math.round(cap / 1024 / 1024) + 'MB' }) }));
       return;
     }
 

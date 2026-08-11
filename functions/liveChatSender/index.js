@@ -93,10 +93,18 @@ function engatiPost(urlString, payload, inboundApiKey) {
   });
 }
 
+// DOCUMENT confirmed real and working (Aug 11 2026) despite NOT being in
+// Engati's documented packetType enum (their dev doc only lists
+// TEXT/IMAGE/AUDIO/VIDEO) - verified via a genuine PDF, real send, real
+// delivery. Without this branch, any PDF would fall through to the
+// default 'IMAGE' return below and WhatsApp would reject the
+// packetType/mimeType mismatch. See workdrive-attachment-research-
+// unfinished persistent notes for the full test.
 function inferPacketType(mimeType) {
   if (!mimeType) return 'IMAGE';
   if (mimeType.indexOf('video') === 0) return 'VIDEO';
   if (mimeType.indexOf('audio') === 0) return 'AUDIO';
+  if (mimeType === 'application/pdf') return 'DOCUMENT';
   return 'IMAGE';
 }
 

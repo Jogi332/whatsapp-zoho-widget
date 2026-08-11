@@ -35,10 +35,12 @@ return msg ? String(msg).replace(/<[^>]*>/g, '').trim() : '';
 function mediaKindFor(url, messageType){
 var t = String(messageType || '').toUpperCase();
 if(t === 'IMAGE' || t === 'VIDEO' || t === 'AUDIO'){ return t.toLowerCase(); }
+if(t === 'DOCUMENT'){ return 'document'; }
 var u = String(url || '').toLowerCase().split('#')[0].split('?')[0];
 if(/\.(jpg|jpeg|png|gif|webp)$/.test(u)) return 'image';
 if(/\.(mp4|3gp|mov|webm)$/.test(u)) return 'video';
 if(/\.(mp3|ogg|m4a|amr|aac|wav)$/.test(u)) return 'audio';
+if(/\.pdf$/.test(u)) return 'document';
 return 'file';
 }
 
@@ -109,8 +111,17 @@ node = document.createElement('audio');
 node.src = msg.mediaUrl;
 node.controls = true;
 node.preload = 'metadata';
+} else if(kind === 'document'){
+// className is set below by the shared 'bubble-media bubble-media-' +
+// kind line, same as every other kind - not set here to avoid it being
+// silently overwritten.
+node = document.createElement('a');
+node.href = msg.mediaUrl;
+node.target = '_blank';
+node.rel = 'noopener noreferrer';
+node.textContent = '📄 ' + (msg.mediaFilename || 'Open PDF');
 } else {
-// Unknown type (document, sticker, anything new) - a link is always safe.
+// Unknown type (sticker, anything new) - a link is always safe.
 node = document.createElement('a');
 node.href = msg.mediaUrl;
 node.target = '_blank';
@@ -889,17 +900,34 @@ reader.readAsDataURL(file);
 function attachTypeForMime(mimeType){
 if(mimeType && mimeType.indexOf('video') === 0) return 'VIDEO';
 if(mimeType && mimeType.indexOf('audio') === 0) return 'AUDIO';
+if(mimeType === 'application/pdf') return 'DOCUMENT';
 return 'IMAGE';
 }
 
-// Must match MAX_UPLOAD_BYTES in catalyst-functions/fileUpload/index.js
-// (which caps the DECODED size, i.e. the original file - not the
-// base64-inflated wire size). Checking this client-side before ever
-// touching the network gives an immediate, specific error instead of
-// making the user wait through a full base64 read + upload attempt just
-// to get a 413 back at the end - the gap that made video uploads look
-// like a silent hang rather than a clear "too big" message.
-var MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+// Must match MAX_UPLOAD_BYTES / MAX_DOCUMENT_UPLOAD_BYTES in
+// catalyst-functions/fileUpload/index.js (which cap the DECODED size,
+// i.e. the original file - not the base64-inflated wire size). Checking
+// this client-side before ever touching the network gives an immediate,
+// specific error instead of making the user wait through a full base64
+// read + upload attempt just to get a 413 back at the end - the gap that
+// made video uploads look like a silent hang rather than a clear "too
+// big" message.
+//
+// Documents get a higher cap than images/audio/video (20MB vs 15MB) -
+// NOT because WhatsApp allows more (their real document ceiling is
+// 100MB), but because that's as far as this project's own upload
+// pipeline has actually been tested working. Confirmed via direct
+// testing (Aug 11 2026): a 25MB file uploads and cleanly rejects; a 28MB
+// file makes the Catalyst function silently die (HTTP 200, empty body,
+// no error) - almost certainly because it buffers the whole file in
+// memory rather than streaming it. 100MB is not achievable without a
+// genuine rewrite of that function - don't raise this constant without
+// re-testing the real ceiling first.
+var MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // images/audio/video
+var MAX_DOCUMENT_UPLOAD_BYTES = 20 * 1024 * 1024; // documents (PDF)
+function uploadCapFor(mimeType){
+return (mimeType === 'application/pdf') ? MAX_DOCUMENT_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
+}
 
 // Same text/plain CORS-bypass as every other Catalyst call in this file -
 // see the comment on sendFreeTextMessage's fetch() for why.
@@ -940,17 +968,18 @@ var uploadBtn = document.getElementById('attachUploadBtn');
 var prevLabel = uploadBtn.textContent;
 var progressWrap = document.getElementById('attachProgressWrap');
 var progressBar = document.getElementById('attachProgressBar');
-if(file.size > MAX_UPLOAD_BYTES){
-showDebug('fileUpload REJECTED client-side: ' + file.name + ' is ' + (file.size/1024/1024).toFixed(1) + 'MB, max is ' + (MAX_UPLOAD_BYTES/1024/1024) + 'MB');
-alert('That file is ' + (file.size/1024/1024).toFixed(1) + 'MB - the limit is ' + (MAX_UPLOAD_BYTES/1024/1024) + 'MB. Choose a smaller file.');
+var cap = uploadCapFor(file.type);
+if(file.size > cap){
+showDebug('fileUpload REJECTED client-side: ' + file.name + ' is ' + (file.size/1024/1024).toFixed(1) + 'MB, max is ' + (cap/1024/1024) + 'MB');
+alert('That file is ' + (file.size/1024/1024).toFixed(1) + 'MB - the limit is ' + (cap/1024/1024) + 'MB. Choose a smaller file.');
 return;
 }
 // Drag-and-drop has no "accept" attribute to lean on the way the file
 // input does - the browser lets you drop literally anything. Same
-// image/video/audio check enforced here explicitly instead.
-if(file.type && !/^(image|video|audio)\//.test(file.type)){
-showDebug('fileUpload REJECTED client-side: ' + file.name + ' is ' + file.type + ', not image/video/audio');
-alert('"' + file.name + '" is a ' + file.type + ' file - only images, videos, and audio can be attached.');
+// image/video/audio/pdf check enforced here explicitly instead.
+if(file.type && !/^(image|video|audio)\//.test(file.type) && file.type !== 'application/pdf'){
+showDebug('fileUpload REJECTED client-side: ' + file.name + ' is ' + file.type + ', not image/video/audio/pdf');
+alert('"' + file.name + '" is a ' + file.type + ' file - only images, videos, audio, and PDFs can be attached.');
 return;
 }
 uploadBtn.disabled = true;
@@ -1097,9 +1126,10 @@ el.style.display = 'none';
 var MIME_BY_EXTENSION = {
 jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
 mp4: 'video/mp4', '3gp': 'video/3gpp',
-mp3: 'audio/mpeg', ogg: 'audio/ogg', m4a: 'audio/mp4', amr: 'audio/amr', aac: 'audio/aac'
+mp3: 'audio/mpeg', ogg: 'audio/ogg', m4a: 'audio/mp4', amr: 'audio/amr', aac: 'audio/aac',
+pdf: 'application/pdf'
 };
-var MIME_CATEGORY_DEFAULT = { IMAGE: 'image/jpeg', VIDEO: 'video/mp4', AUDIO: 'audio/mpeg' };
+var MIME_CATEGORY_DEFAULT = { IMAGE: 'image/jpeg', VIDEO: 'video/mp4', AUDIO: 'audio/mpeg', DOCUMENT: 'application/pdf' };
 function extensionOf(url){
 // Strip query string and fragment before reading the extension, so
 // ".../logo.png?v=2" doesn't come out as "png?v=2".
@@ -1113,6 +1143,13 @@ var fromExt = MIME_BY_EXTENSION[extensionOf(url)];
 // Only trust the extension if it agrees with the category the user picked -
 // otherwise a mislabelled URL (e.g. .mp4 selected as IMAGE) would send a
 // contradictory packetType/mimeType pair, which WhatsApp also rejects.
+// DOCUMENT is checked as an exact match rather than a prefix, since
+// "application/pdf" doesn't share a clean "type/" prefix scheme the way
+// image/video/audio do (documents aren't restricted to one MIME family
+// in general - PDF is just the one this project actually supports).
+if(t === 'DOCUMENT'){
+return (fromExt === 'application/pdf') ? fromExt : MIME_CATEGORY_DEFAULT.DOCUMENT;
+}
 var expectedPrefix = (t === 'VIDEO' ? 'video/' : t === 'AUDIO' ? 'audio/' : 'image/');
 if(fromExt && fromExt.indexOf(expectedPrefix) === 0){ return fromExt; }
 return MIME_CATEGORY_DEFAULT[t] || 'image/jpeg';
