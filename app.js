@@ -887,25 +887,31 @@ return 'IMAGE';
 var MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 // Same text/plain CORS-bypass as every other Catalyst call in this file -
-// see the comment on sendFreeTextMessage's fetch() for why. Uses
-// XMLHttpRequest rather than fetch() specifically because fetch has no
-// upload-progress event at all - XHR's xhr.upload.onprogress is the only
-// way to report real progress for the (usually large, usually slow)
-// network upload step, as opposed to the local file read.
-function uploadAttachmentFile(file, onProgress){
+// see the comment on sendFreeTextMessage's fetch() for why.
+//
+// TRIED XMLHttpRequest here first, specifically to get real upload
+// percentage via xhr.upload.onprogress (fetch has no upload-progress
+// event at all) - REVERTED after real testing broke uploads entirely
+// ("network error during upload" in the debug log, i.e. xhr.onerror, a
+// genuine network-level failure, not an HTTP error status). Root cause:
+// per the CORS spec, attaching ANY listener to XMLHttpRequestUpload
+// (xhr.upload.onprogress) disqualifies the request from being treated as
+// a "simple request" even when the method/headers would otherwise
+// qualify - it forces a real CORS preflight (OPTIONS) regardless of the
+// text/plain trick. That preflight then failed against this function's
+// CORS setup, breaking what was previously reliable. Not worth chasing a
+// percentage indicator at the cost of uploads actually working - back to
+// plain fetch(), no upload-progress events, just an indeterminate "still
+// working" animation instead of a real percentage (see the UI code
+// below).
+function uploadAttachmentFile(file){
 return readFileAsBase64(file).then(function(dataBase64){
-return new Promise(function(resolve, reject){
-var xhr = new XMLHttpRequest();
-xhr.open('POST', FILE_UPLOAD_PROXY_URL, true);
-xhr.setRequestHeader('Content-Type', 'text/plain');
-xhr.upload.onprogress = function(e){
-if(onProgress && e.lengthComputable){ onProgress(e.loaded / e.total); }
-};
-xhr.onload = function(){ resolve(xhr.responseText); };
-xhr.onerror = function(){ reject(new Error('network error during upload')); };
-xhr.send(JSON.stringify({ filename: file.name, mimeType: file.type, dataBase64: dataBase64 }));
+return fetch(FILE_UPLOAD_PROXY_URL, {
+method: 'POST',
+headers: { 'Content-Type': 'text/plain' },
+body: JSON.stringify({ filename: file.name, mimeType: file.type, dataBase64: dataBase64 })
 });
-});
+}).then(function(r){ return r.text(); });
 }
 
 document.getElementById('attachUploadBtn').addEventListener('click', function(){
@@ -926,25 +932,16 @@ alert('That file is ' + (file.size/1024/1024).toFixed(1) + 'MB - the limit is ' 
 return;
 }
 uploadBtn.disabled = true;
-// "Reading..." first, not "Uploading... 0%" - the file has to be
-// base64-encoded locally (FileReader) BEFORE the network upload even
-// starts, and for a large video that read alone can take a few seconds
-// with nothing to report yet. Labeling that phase "Uploading... 0%" is
-// what made this look stuck - it hadn't started uploading at all yet.
-uploadBtn.textContent = 'Reading file...';
+// No real percentage available - plain fetch() (restored above after
+// XHR's upload-progress listener broke CORS) gives no visibility into
+// either the local read or the network upload. Indeterminate animation
+// for the whole operation instead: honest about "still working, no ETA"
+// rather than faking a number that isn't real.
+uploadBtn.textContent = 'Uploading...';
 progressWrap.style.display = 'block';
 progressWrap.classList.add('indeterminate');
 progressBar.style.width = '100%';
-var uploadStarted = false;
-uploadAttachmentFile(file, function(fraction){
-if(!uploadStarted){
-uploadStarted = true;
-progressWrap.classList.remove('indeterminate');
-}
-var pct = Math.round(fraction * 100);
-uploadBtn.textContent = 'Uploading... ' + pct + '%';
-progressBar.style.width = pct + '%';
-}).then(function(resp){
+uploadAttachmentFile(file).then(function(resp){
 var data = safeParse(resp);
 showDebug('fileUpload RAW RESPONSE: ' + JSON.stringify(resp).slice(0,1000));
 var body = data && data.body ? safeParse(data.body) : null;
