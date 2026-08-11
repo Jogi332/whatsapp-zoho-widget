@@ -929,12 +929,12 @@ body: JSON.stringify({ filename: file.name, mimeType: file.type, dataBase64: dat
 }).then(function(r){ return r.text(); });
 }
 
-document.getElementById('attachUploadBtn').addEventListener('click', function(){
-document.getElementById('attachFileInput').click();
-});
-document.getElementById('attachFileInput').addEventListener('change', function(){
-var fileInput = this;
-var file = fileInput.files && fileInput.files[0];
+// Shared by both attach paths (file-picker "Upload file…" button, and
+// drag-and-drop onto the widget) - pulled out so drag-and-drop could
+// reuse the exact same validation/upload/UI-update logic rather than
+// duplicating it. The only thing NOT shared is resetting the file
+// <input>'s value, since a dropped file never touched that element.
+function handleAttachmentFile(file){
 if(!file) return;
 var uploadBtn = document.getElementById('attachUploadBtn');
 var prevLabel = uploadBtn.textContent;
@@ -942,8 +942,15 @@ var progressWrap = document.getElementById('attachProgressWrap');
 var progressBar = document.getElementById('attachProgressBar');
 if(file.size > MAX_UPLOAD_BYTES){
 showDebug('fileUpload REJECTED client-side: ' + file.name + ' is ' + (file.size/1024/1024).toFixed(1) + 'MB, max is ' + (MAX_UPLOAD_BYTES/1024/1024) + 'MB');
-fileInput.value = '';
 alert('That file is ' + (file.size/1024/1024).toFixed(1) + 'MB - the limit is ' + (MAX_UPLOAD_BYTES/1024/1024) + 'MB. Choose a smaller file.');
+return;
+}
+// Drag-and-drop has no "accept" attribute to lean on the way the file
+// input does - the browser lets you drop literally anything. Same
+// image/video/audio check enforced here explicitly instead.
+if(file.type && !/^(image|video|audio)\//.test(file.type)){
+showDebug('fileUpload REJECTED client-side: ' + file.name + ' is ' + file.type + ', not image/video/audio');
+alert('"' + file.name + '" is a ' + file.type + ' file - only images, videos, and audio can be attached.');
 return;
 }
 uploadBtn.disabled = true;
@@ -963,7 +970,6 @@ var body = data && data.body ? safeParse(data.body) : null;
 uploadBtn.disabled = false;
 uploadBtn.textContent = prevLabel;
 progressWrap.style.display = 'none';
-fileInput.value = '';
 if(!(data && data.statusCode === 200 && body && body.url)){
 showDebug('fileUpload FAILED: ' + ((body && body.error) || 'upload failed'));
 return;
@@ -979,10 +985,54 @@ document.getElementById('attachToggleBtn').classList.add('active');
 uploadBtn.disabled = false;
 uploadBtn.textContent = prevLabel;
 progressWrap.style.display = 'none';
-fileInput.value = '';
 showDebug('fileUpload CATCH ERROR: ' + (err && err.message));
 });
+}
+
+document.getElementById('attachUploadBtn').addEventListener('click', function(){
+document.getElementById('attachFileInput').click();
 });
+document.getElementById('attachFileInput').addEventListener('change', function(){
+var file = this.files && this.files[0];
+handleAttachmentFile(file);
+this.value = '';
+});
+
+// Drag-and-drop attach - drop a file anywhere on the widget (not just a
+// small target) to attach it, reusing the exact same upload pipeline as
+// the "Upload file…" button. #chat-root covers the whole widget body
+// (messages + composer), not just the composer, so this works whether
+// the agent drops onto the conversation or the input area.
+(function(){
+var dropTarget = document.getElementById('chat-root');
+var overlay = document.getElementById('dropOverlay');
+var dragDepth = 0; // dragenter/dragleave fire per-child-element, not
+// just once for the whole zone - a plain counter is the standard fix
+// for the overlay otherwise flickering off while still dragging over
+// a child element inside the drop target.
+dropTarget.addEventListener('dragenter', function(e){
+e.preventDefault();
+dragDepth++;
+overlay.classList.add('active');
+});
+dropTarget.addEventListener('dragover', function(e){
+e.preventDefault(); // required - without this, 'drop' never fires
+});
+dropTarget.addEventListener('dragleave', function(e){
+dragDepth = Math.max(0, dragDepth - 1);
+if(dragDepth === 0){ overlay.classList.remove('active'); }
+});
+dropTarget.addEventListener('drop', function(e){
+e.preventDefault();
+dragDepth = 0;
+overlay.classList.remove('active');
+var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+if(!file) return;
+document.getElementById('attachRow').classList.add('open');
+document.getElementById('attachToggleBtn').classList.add('active');
+handleAttachmentFile(file);
+});
+})();
 
 document.getElementById('sendBtn').addEventListener('click',function(){
 var input=document.getElementById('msgInput');

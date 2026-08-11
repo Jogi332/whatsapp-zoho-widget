@@ -1,6 +1,14 @@
 *{box-sizing:border-box;}
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow-x:hidden;}
-#chat-root{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+#chat-root{display:flex;flex-direction:column;height:100vh;height:100dvh;position:relative;}
+/* Shown while dragging a file over any part of the widget (not just the
+   composer) - covers the whole widget so there's no small, easy-to-miss
+   drop target to aim for. pointer-events:none so it's purely visual and
+   never itself becomes what dragenter/dragleave/drop fire against -
+   letting drag events land on the real #chat-root underneath is what
+   keeps the dragDepth counter in app.js correct. */
+#dropOverlay{display:none;position:absolute;inset:0;z-index:50;background:rgba(37,211,102,0.12);border:3px dashed #25D366;align-items:center;justify-content:center;font-size:18px;font-weight:600;color:#128C7E;text-align:center;padding:20px;pointer-events:none;}
+#dropOverlay.active{display:flex;}
 #brandHeader{display:flex;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(135deg,#075E54,#0b7d6f);color:#fff;flex:0 0 auto;cursor:pointer;transition:padding 0.15s ease;box-shadow:0 2px 6px rgba(0,0,0,0.18);position:relative;z-index:1;}
 #brandHeader.collapsed{padding:8px 16px;}
 #brandLogo{height:42px;width:42px;object-fit:contain;border-radius:10px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);transition:height 0.15s ease,width 0.15s ease,opacity 0.15s ease,margin 0.15s ease;}
