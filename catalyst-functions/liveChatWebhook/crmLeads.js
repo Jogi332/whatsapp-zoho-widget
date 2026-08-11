@@ -155,6 +155,38 @@ async function updateLeadName(token, id, displayName) {
   return !!(record && record.code === 'SUCCESS');
 }
 
+// Sets the two fields that let agents see "new message" from the Leads
+// LIST VIEW, without opening every record - see multi-tenant-customer-
+// expansion / composer-ui-additions memory notes for why this exists.
+// WhatsApp_Unread and Last_WhatsApp_Message are both custom fields that
+// must be created on the Leads module before this does anything useful
+// (see SETUP.md) - a missing-field error here is swallowed the same way
+// every other CRM write failure in this file is, so a customer who
+// hasn't set these fields up yet doesn't lose inbound message
+// processing over it.
+//
+// Cleared client-side instead of here - see app.js's PageLoad handler,
+// which clears it the moment an agent actually opens the record's
+// WhatsApp panel. That's the real "read" signal, not "an agent sent a
+// reply" (an agent might open a conversation just to check it).
+async function markUnread(token, id) {
+  const payload = JSON.stringify({ data: [{ id: id, WhatsApp_Unread: true, Last_WhatsApp_Message: new Date().toISOString() }] });
+  const res = await requestJson({
+    hostname: apiHost(),
+    path: '/crm/v2/Leads',
+    method: 'PUT',
+    headers: {
+      'Authorization': 'Zoho-oauthtoken ' + token,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  }, payload);
+  const record = res.json && Array.isArray(res.json.data) && res.json.data[0];
+  if (!(record && record.code === 'SUCCESS')) {
+    console.error('[crmLeads] markUnread failed for Lead ' + id + ': ' + String(res.body).slice(0, 300));
+  }
+}
+
 async function getLeadName(token, id) {
   const res = await requestJson({
     hostname: apiHost(),
@@ -195,7 +227,14 @@ async function upsertLead(token, digits, displayName) {
     data: [{
       Last_Name: displayName || fallbackName(digits),
       Phone: '+' + digits,
-      Lead_Source: 'WhatsApp'
+      Lead_Source: 'WhatsApp',
+      // /upsert handles both the brand-new-Lead case AND the case where
+      // duplicate_check_fields matches an existing record - either way,
+      // this message just arrived, so both cases get the same "unread,
+      // just now" state in one write. No separate markUnread() call
+      // needed for this path.
+      WhatsApp_Unread: true,
+      Last_WhatsApp_Message: new Date().toISOString()
     }],
     duplicate_check_fields: ['Phone'],
     trigger: []
@@ -305,22 +344,34 @@ async function ensureLeadForPhone(catalystApp, userId, displayName) {
   // comparing names - the placeholder would then persist for the entire
   // cache TTL (up to 6 hours) even though the real name was right there.
   const localHit = recallLocally(digits);
-  if (localHit && !displayName) { return 'existing Lead ' + localHit + ' (in-process cache)'; }
 
   try {
+    // Fetched up front now, unlike before markUnread() existed - every
+    // return path below (except the create/upsert one, which folds the
+    // fields into its own write) now needs a token to mark the Lead
+    // unread, so there is no longer a token-free fast path. getAccessToken()
+    // caches for an hour, so this is a cheap in-memory check on every call
+    // except the first per warm container.
+    const token = await getAccessToken();
+
+    if (localHit && !displayName) {
+      await markUnread(token, localHit);
+      return 'existing Lead ' + localHit + ' (in-process cache)';
+    }
+
     const cachedId = localHit || await recallFromCache(catalystApp, digits);
     if (cachedId && !displayName) {
       rememberLocally(digits, cachedId);
+      await markUnread(token, cachedId);
       return 'existing Lead ' + cachedId + ' (Catalyst cache)';
     }
-
-    const token = await getAccessToken();
 
     if (cachedId) {
       // Already know the id - one GET to check the name, cheaper than a
       // fresh /search.
       rememberLocally(digits, cachedId);
       await rememberInCache(catalystApp, digits, cachedId);
+      await markUnread(token, cachedId);
       return await backfillIfNeeded(token, cachedId, digits, displayName);
     }
 
@@ -329,6 +380,7 @@ async function ensureLeadForPhone(catalystApp, userId, displayName) {
     if (existing) {
       rememberLocally(digits, existing.id);
       await rememberInCache(catalystApp, digits, existing.id);
+      await markUnread(token, existing.id);
       if (displayName && existing.Last_Name === fallbackName(digits)) {
         const renamed = await updateLeadName(token, existing.id, displayName);
         return 'existing Lead ' + existing.id + ' (matched by search, name ' + (renamed ? 'backfilled' : 'backfill FAILED') + ')';
@@ -336,6 +388,8 @@ async function ensureLeadForPhone(catalystApp, userId, displayName) {
       return 'existing Lead ' + existing.id + ' (matched by search)';
     }
 
+    // upsertLead's own payload already includes WhatsApp_Unread/
+    // Last_WhatsApp_Message - no separate markUnread() call needed here.
     const result = await upsertLead(token, digits, displayName);
     rememberLocally(digits, result.id);
     await rememberInCache(catalystApp, digits, result.id);

@@ -708,6 +708,18 @@ return ZOHO.CRM.API.getRecord({Entity:entity,RecordID:entityId});
 var rec=res && res.data && res.data[0];
 var phone=rec && (rec.Phone||rec.Mobile);
 if(phone){loadConversation(phone);}else{renderStatus('No phone number on this record.');}
+// Opening this record's WhatsApp panel IS the "read" signal - clear the
+// Unread flag liveChatWebhook sets on every inbound message (see
+// crmLeads.js markUnread()), so the Leads list view stops flagging this
+// record as needing attention. Fire-and-forget: this is a convenience
+// indicator, not something that should block the chat from loading if
+// it fails or is slow, and there's nothing useful to do with an error
+// here beyond logging it.
+if(rec && rec.id && rec.WhatsApp_Unread){
+ZOHO.CRM.API.updateRecord({Entity:entity,APIData:{id:rec.id,WhatsApp_Unread:false}}).catch(function(err){
+showDebug('clear WhatsApp_Unread FAILED: ' + (err && err.message));
+});
+}
 }).catch(function(){});
 });
 function showDebug(text){
