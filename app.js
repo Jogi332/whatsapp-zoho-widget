@@ -877,16 +877,35 @@ if(mimeType && mimeType.indexOf('audio') === 0) return 'AUDIO';
 return 'IMAGE';
 }
 
+// Must match MAX_UPLOAD_BYTES in catalyst-functions/fileUpload/index.js
+// (which caps the DECODED size, i.e. the original file - not the
+// base64-inflated wire size). Checking this client-side before ever
+// touching the network gives an immediate, specific error instead of
+// making the user wait through a full base64 read + upload attempt just
+// to get a 413 back at the end - the gap that made video uploads look
+// like a silent hang rather than a clear "too big" message.
+var MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+
 // Same text/plain CORS-bypass as every other Catalyst call in this file -
-// see the comment on sendFreeTextMessage's fetch() for why.
-function uploadAttachmentFile(file){
+// see the comment on sendFreeTextMessage's fetch() for why. Uses
+// XMLHttpRequest rather than fetch() specifically because fetch has no
+// upload-progress event at all - XHR's xhr.upload.onprogress is the only
+// way to report real progress for the (usually large, usually slow)
+// network upload step, as opposed to the local file read.
+function uploadAttachmentFile(file, onProgress){
 return readFileAsBase64(file).then(function(dataBase64){
-return fetch(FILE_UPLOAD_PROXY_URL, {
-method: 'POST',
-headers: { 'Content-Type': 'text/plain' },
-body: JSON.stringify({ filename: file.name, mimeType: file.type, dataBase64: dataBase64 })
+return new Promise(function(resolve, reject){
+var xhr = new XMLHttpRequest();
+xhr.open('POST', FILE_UPLOAD_PROXY_URL, true);
+xhr.setRequestHeader('Content-Type', 'text/plain');
+xhr.upload.onprogress = function(e){
+if(onProgress && e.lengthComputable){ onProgress(e.loaded / e.total); }
+};
+xhr.onload = function(){ resolve(xhr.responseText); };
+xhr.onerror = function(){ reject(new Error('network error during upload')); };
+xhr.send(JSON.stringify({ filename: file.name, mimeType: file.type, dataBase64: dataBase64 }));
 });
-}).then(function(r){ return r.text(); });
+});
 }
 
 document.getElementById('attachUploadBtn').addEventListener('click', function(){
@@ -898,14 +917,29 @@ var file = fileInput.files && fileInput.files[0];
 if(!file) return;
 var uploadBtn = document.getElementById('attachUploadBtn');
 var prevLabel = uploadBtn.textContent;
+var progressWrap = document.getElementById('attachProgressWrap');
+var progressBar = document.getElementById('attachProgressBar');
+if(file.size > MAX_UPLOAD_BYTES){
+showDebug('fileUpload REJECTED client-side: ' + file.name + ' is ' + (file.size/1024/1024).toFixed(1) + 'MB, max is ' + (MAX_UPLOAD_BYTES/1024/1024) + 'MB');
+fileInput.value = '';
+alert('That file is ' + (file.size/1024/1024).toFixed(1) + 'MB - the limit is ' + (MAX_UPLOAD_BYTES/1024/1024) + 'MB. Choose a smaller file.');
+return;
+}
 uploadBtn.disabled = true;
-uploadBtn.textContent = 'Uploading...';
-uploadAttachmentFile(file).then(function(resp){
+uploadBtn.textContent = 'Uploading... 0%';
+progressWrap.style.display = 'block';
+progressBar.style.width = '0%';
+uploadAttachmentFile(file, function(fraction){
+var pct = Math.round(fraction * 100);
+uploadBtn.textContent = 'Uploading... ' + pct + '%';
+progressBar.style.width = pct + '%';
+}).then(function(resp){
 var data = safeParse(resp);
 showDebug('fileUpload RAW RESPONSE: ' + JSON.stringify(resp).slice(0,1000));
 var body = data && data.body ? safeParse(data.body) : null;
 uploadBtn.disabled = false;
 uploadBtn.textContent = prevLabel;
+progressWrap.style.display = 'none';
 fileInput.value = '';
 if(!(data && data.statusCode === 200 && body && body.url)){
 showDebug('fileUpload FAILED: ' + ((body && body.error) || 'upload failed'));
@@ -921,6 +955,7 @@ document.getElementById('attachToggleBtn').classList.add('active');
 }).catch(function(err){
 uploadBtn.disabled = false;
 uploadBtn.textContent = prevLabel;
+progressWrap.style.display = 'none';
 fileInput.value = '';
 showDebug('fileUpload CATCH ERROR: ' + (err && err.message));
 });

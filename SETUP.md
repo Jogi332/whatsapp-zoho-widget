@@ -504,6 +504,15 @@ binding constraint.
 ## Known limitations to set expectations on
 
 - **No read receipts / blue ticks.** Engati's API doesn't expose message read status.
+- **Device-upload attachments: 15MB file size limit.** Enforced in two places -
+  `catalyst-functions/fileUpload/index.js`'s `MAX_UPLOAD_BYTES` (server-side, returns a `413` with
+  a clear message if exceeded) and mirrored client-side in `app.js`'s own `MAX_UPLOAD_BYTES` check
+  (rejects immediately with an alert, before wasting time on a base64 read + upload attempt that
+  would just fail at the end anyway - this is what made large video uploads look like a silent
+  hang before the client-side check was added). Shown to the agent directly in the UI too
+  (`#attachHint` next to the Upload button). If a customer needs larger files, both constants need
+  raising together - check Catalyst's own untested Advanced I/O request-body ceiling first, since
+  that may be the real limit before 15MB ever matters.
 - **Device-upload attachments: BUILT but BLOCKED, Aug 10, 2026 — do not tell a customer this
   works.** The widget's "Upload file…" button, the `fileUpload` Catalyst function, and the whole
   upload → WorkDrive → public URL pipeline are built, deployed to both environments, and the

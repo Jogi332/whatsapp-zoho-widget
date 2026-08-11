@@ -79,6 +79,9 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
 #attachUploadBtn{background:#fff;border:1px solid #ccc;border-radius:6px;padding:8px 10px;cursor:pointer;font-size:13px;line-height:1;flex:0 0 auto;white-space:nowrap;}
 #attachUploadBtn:disabled{opacity:0.6;cursor:default;}
 #attachClearBtn{background:#fff;border:1px solid #ccc;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:13px;line-height:1;flex:0 0 auto;color:#c33;}
+#attachHint{font-size:11px;color:#8c8c8c;padding:0 4px;}
+#attachProgressWrap{height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;}
+#attachProgressBar{height:100%;width:0%;background:#25D366;transition:width 0.15s ease;}
 #composerNote{font-size:11px;color:#8c8c8c;text-align:center;padding:2px 4px;}
 /* Second, quieter branding mention beyond the collapsible header - same
    "Powered by X" pattern used by Intercom/Crisp/Tawk.to on their own

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Whatsyoo</title>
-<link rel="stylesheet" href="style.css?v=20260811b">
+<link rel="stylesheet" href="style.css?v=20260811c">
 <script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
 </head>
 <body>
@@ -33,9 +33,11 @@
           <option value="AUDIO">Audio</option>
         </select>
         <input id="attachUrl" type="text" placeholder="Attachment URL (image/video/audio)" />
-        <button id="attachUploadBtn" type="button" title="Upload a file from this device">Upload file&hellip;</button>
+        <button id="attachUploadBtn" type="button" title="Upload a file from this device (max 15MB)">Upload file&hellip;</button>
         <button id="attachClearBtn" type="button" title="Remove attachment">✕</button>
       </div>
+      <div id="attachHint">Max file size: 15MB</div>
+      <div id="attachProgressWrap" style="display:none;"><div id="attachProgressBar"></div></div>
       <input id="attachFileInput" type="file" accept="image/*,video/*,audio/*" style="display:none;" />
       <div id="composerRow">
         <button id="attachToggleBtn" type="button" title="Attach image, video, or audio">📎</button>
@@ -59,6 +61,6 @@
       <div id="brandFooter">Powered by <a href="https://whatsyoo.com" target="_blank" rel="noopener">Whatsyoo</a></div>
     </div>
   </div>
-  <script src="app.js?v=20260811b"></script>
+  <script src="app.js?v=20260811c"></script>
 </body>
 </html>
