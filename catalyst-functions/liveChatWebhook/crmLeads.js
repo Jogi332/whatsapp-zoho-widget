@@ -202,12 +202,16 @@ const FALLBACK_TASK_OWNER_ID = '1371289000000545001';
 async function createReplyTask(token, leadId) {
   const res = await requestJson({
     hostname: apiHost(),
-    path: '/crm/v2/Leads/' + leadId + '?fields=Last_Name,Owner',
+    path: '/crm/v2/Leads/' + leadId + '?fields=First_Name,Last_Name,Owner',
     method: 'GET',
     headers: { 'Authorization': 'Zoho-oauthtoken ' + token }
   });
   const record = res.json && Array.isArray(res.json.data) && res.json.data[0];
-  const leadName = (record && record.Last_Name) || 'WhatsApp Lead';
+  // Last_Name alone reads oddly for contacts whose name got split unevenly
+  // between First_Name/Last_Name (e.g. a WhatsApp profile name landing
+  // entirely in Last_Name via updateLeadName's backfill) - use both when
+  // available, same as how Zoho's own "Lead Name" display combines them.
+  const leadName = ((record && ((record.First_Name ? record.First_Name + ' ' : '') + (record.Last_Name || ''))) || '').trim() || 'WhatsApp Lead';
   const ownerId = (record && record.Owner && record.Owner.id) || FALLBACK_TASK_OWNER_ID;
 
   const payload = JSON.stringify({
