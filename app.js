@@ -168,6 +168,21 @@ timeEl.className='bubble-time';
 var tickEl=document.createElement('span');
 tickEl.className='ticks'+(m.status==='read'?' read':'');
 tickEl.textContent=(m.status==='sent'?' \u2713':' \u2713\u2713');
+// Honest tooltip on the tick, outbound messages only - this whole
+// project's Engati investigation proved repeatedly that a "success"
+// response from their API (or a message showing up in their Conversation
+// History) does NOT mean WhatsApp actually delivered it - Engati's own
+// STATUS_PACKET mechanism, meant to signal real outcomes, has never once
+// fired in any test. Without this, the double-tick looks exactly like
+// WhatsApp's own "delivered to phone" tick and implies a guarantee this
+// pipeline cannot actually back up. See workdrive-attachment-research
+// and engati-status-packet-is-synchronous persistent notes for the full
+// investigation this is based on.
+if(m.direction === 'out'){
+tickEl.title = (m.status==='sent')
+? 'Sent to Engati - not yet confirmed received'
+: 'Confirmed received by Engati - WhatsApp delivery status is not available through this integration';
+}
 timeEl.textContent=m.time;
 timeEl.appendChild(tickEl);
 d.appendChild(timeEl);
