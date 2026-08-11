@@ -82,6 +82,20 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
 #attachHint{font-size:11px;color:#8c8c8c;padding:0 4px;}
 #attachProgressWrap{height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;}
 #attachProgressBar{height:100%;width:0%;background:#25D366;transition:width 0.15s ease;}
+/* Shown only while the file is being read/base64-encoded locally, before
+   the network upload (and its real, known percentage) has started - a
+   moving stripe rather than a percentage, since there's nothing real to
+   measure yet at this stage. */
+#attachProgressWrap.indeterminate #attachProgressBar{
+  width:100% !important;
+  background:linear-gradient(90deg, #e0e0e0 25%, #25D366 50%, #e0e0e0 75%);
+  background-size:200% 100%;
+  animation:attachIndeterminate 1.1s linear infinite;
+}
+@keyframes attachIndeterminate{
+  0%{background-position:200% 0;}
+  100%{background-position:-200% 0;}
+}
 #composerNote{font-size:11px;color:#8c8c8c;text-align:center;padding:2px 4px;}
 /* Second, quieter branding mention beyond the collapsible header - same
    "Powered by X" pattern used by Intercom/Crisp/Tawk.to on their own

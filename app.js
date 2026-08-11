@@ -926,10 +926,21 @@ alert('That file is ' + (file.size/1024/1024).toFixed(1) + 'MB - the limit is ' 
 return;
 }
 uploadBtn.disabled = true;
-uploadBtn.textContent = 'Uploading... 0%';
+// "Reading..." first, not "Uploading... 0%" - the file has to be
+// base64-encoded locally (FileReader) BEFORE the network upload even
+// starts, and for a large video that read alone can take a few seconds
+// with nothing to report yet. Labeling that phase "Uploading... 0%" is
+// what made this look stuck - it hadn't started uploading at all yet.
+uploadBtn.textContent = 'Reading file...';
 progressWrap.style.display = 'block';
-progressBar.style.width = '0%';
+progressWrap.classList.add('indeterminate');
+progressBar.style.width = '100%';
+var uploadStarted = false;
 uploadAttachmentFile(file, function(fraction){
+if(!uploadStarted){
+uploadStarted = true;
+progressWrap.classList.remove('indeterminate');
+}
 var pct = Math.round(fraction * 100);
 uploadBtn.textContent = 'Uploading... ' + pct + '%';
 progressBar.style.width = pct + '%';
