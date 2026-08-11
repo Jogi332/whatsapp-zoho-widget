@@ -171,6 +171,72 @@ function zohoDateTime(date) {
     'T' + pad(date.getUTCHours()) + ':' + pad(date.getUTCMinutes()) + ':' + pad(date.getUTCSeconds()) + '+00:00';
 }
 
+function zohoDate(date) {
+  const pad = function (n) { return n < 10 ? '0' + n : String(n); };
+  return date.getUTCFullYear() + '-' + pad(date.getUTCMonth() + 1) + '-' + pad(date.getUTCDate());
+}
+
+// Used only if a Lead's Owner is ever unexpectedly blank when creating the
+// reply Task below. Owner is a mandatory Zoho CRM field, so this is
+// defensive insurance rather than an expected path. Whatsyoo Support user,
+// this org - see whatsapp-unread-notification-system memory for how to look
+// up the right id if this ever needs to change.
+const FALLBACK_TASK_OWNER_ID = '1371289000000545001';
+
+// Creates the "reply to this WhatsApp message" Task directly via the CRM
+// REST API, called synchronously right after markUnread below.
+//
+// This used to be a Zoho Workflow Rule (Create/Edit trigger, condition
+// WhatsApp_Unread=true) calling a Deluge Function. That worked, but a real
+// end-to-end test (Aug 11 2026) measured ~2 minutes from message-received to
+// Task-created - Zoho's own Workflow Rule -> Function execution queue isn't
+// fast enough to call "real-time", and the delay isn't something this
+// codebase can control from outside Zoho's automation engine. Doing the
+// exact same create-Task-for-current-Owner logic here instead, in the same
+// Catalyst invocation that already updates the Lead, removes that queue
+// entirely - the only latency left is the two direct HTTPS calls below.
+//
+// The Workflow Rule + Function are left in place in the CRM (disabled) as a
+// reference/fallback rather than deleted - see the memory note for the
+// exact Deluge source if this ever needs restoring.
+async function createReplyTask(token, leadId) {
+  const res = await requestJson({
+    hostname: apiHost(),
+    path: '/crm/v2/Leads/' + leadId + '?fields=Last_Name,Owner',
+    method: 'GET',
+    headers: { 'Authorization': 'Zoho-oauthtoken ' + token }
+  });
+  const record = res.json && Array.isArray(res.json.data) && res.json.data[0];
+  const leadName = (record && record.Last_Name) || 'WhatsApp Lead';
+  const ownerId = (record && record.Owner && record.Owner.id) || FALLBACK_TASK_OWNER_ID;
+
+  const payload = JSON.stringify({
+    data: [{
+      Subject: 'Reply to WhatsApp message - ' + leadName,
+      Status: 'Not Started',
+      Priority: 'High',
+      Due_Date: zohoDate(new Date()),
+      Owner: ownerId,
+      What_Id: leadId,
+      $se_module: 'Leads'
+    }]
+  });
+  const createRes = await requestJson({
+    hostname: apiHost(),
+    path: '/crm/v2/Tasks',
+    method: 'POST',
+    headers: {
+      'Authorization': 'Zoho-oauthtoken ' + token,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  }, payload);
+  const created = createRes.json && Array.isArray(createRes.json.data) && createRes.json.data[0];
+  if (!(created && created.code === 'SUCCESS')) {
+    console.error('[crmLeads] createReplyTask failed for Lead ' + leadId + ': ' + String(createRes.body).slice(0, 300));
+  }
+}
+
 // Sets the two fields that let agents see "new message" from the Leads
 // LIST VIEW, without opening every record - see multi-tenant-customer-
 // expansion / composer-ui-additions memory notes for why this exists.
@@ -185,6 +251,9 @@ function zohoDateTime(date) {
 // which clears it the moment an agent actually opens the record's
 // WhatsApp panel. That's the real "read" signal, not "an agent sent a
 // reply" (an agent might open a conversation just to check it).
+//
+// Also fires createReplyTask() - see its own comment for why that lives
+// here now instead of in a Zoho Workflow Rule.
 async function markUnread(token, id) {
   const payload = JSON.stringify({ data: [{ id: id, WhatsApp_Unread: true, Last_WhatsApp_Message: zohoDateTime(new Date()) }] });
   const res = await requestJson({
@@ -201,6 +270,7 @@ async function markUnread(token, id) {
   if (!(record && record.code === 'SUCCESS')) {
     console.error('[crmLeads] markUnread failed for Lead ' + id + ': ' + String(res.body).slice(0, 300));
   }
+  await createReplyTask(token, id);
 }
 
 async function getLeadName(token, id) {
@@ -406,9 +476,12 @@ async function ensureLeadForPhone(catalystApp, userId, displayName) {
 
     // upsertLead's own payload already includes WhatsApp_Unread/
     // Last_WhatsApp_Message - no separate markUnread() call needed here.
+    // createReplyTask() is still needed explicitly though, since only
+    // markUnread() calls it automatically.
     const result = await upsertLead(token, digits, displayName);
     rememberLocally(digits, result.id);
     await rememberInCache(catalystApp, digits, result.id);
+    await createReplyTask(token, result.id);
     return result.action + ' Lead ' + result.id;
   } catch (e) {
     return 'FAILED: ' + ((e && e.message) || String(e));
