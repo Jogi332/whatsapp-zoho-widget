@@ -155,6 +155,22 @@ async function updateLeadName(token, id, displayName) {
   return !!(record && record.code === 'SUCCESS');
 }
 
+// Zoho CRM's REST API rejects Date.prototype.toISOString()'s output
+// ("...761Z") for a "datetime" field with INVALID_DATA - confirmed via a
+// real failing call (Aug 11 2026): {"code":"INVALID_DATA","details":
+// {"expected_data_type":"datetime","api_name":"Last_WhatsApp_Message"}}.
+// It wants an explicit numeric UTC offset instead of the "Z" designator,
+// and no milliseconds. This was silently swallowed by the same
+// catch-and-log pattern every other CRM write failure here uses, so
+// WhatsApp_Unread/Last_WhatsApp_Message were never actually being set in
+// Production despite every other part of the pipeline working - caught by
+// checking DevOps > Logs after a real end-to-end test, not by inspection.
+function zohoDateTime(date) {
+  const pad = function (n) { return n < 10 ? '0' + n : String(n); };
+  return date.getUTCFullYear() + '-' + pad(date.getUTCMonth() + 1) + '-' + pad(date.getUTCDate()) +
+    'T' + pad(date.getUTCHours()) + ':' + pad(date.getUTCMinutes()) + ':' + pad(date.getUTCSeconds()) + '+00:00';
+}
+
 // Sets the two fields that let agents see "new message" from the Leads
 // LIST VIEW, without opening every record - see multi-tenant-customer-
 // expansion / composer-ui-additions memory notes for why this exists.
@@ -170,7 +186,7 @@ async function updateLeadName(token, id, displayName) {
 // WhatsApp panel. That's the real "read" signal, not "an agent sent a
 // reply" (an agent might open a conversation just to check it).
 async function markUnread(token, id) {
-  const payload = JSON.stringify({ data: [{ id: id, WhatsApp_Unread: true, Last_WhatsApp_Message: new Date().toISOString() }] });
+  const payload = JSON.stringify({ data: [{ id: id, WhatsApp_Unread: true, Last_WhatsApp_Message: zohoDateTime(new Date()) }] });
   const res = await requestJson({
     hostname: apiHost(),
     path: '/crm/v2/Leads',
@@ -234,7 +250,7 @@ async function upsertLead(token, digits, displayName) {
       // just now" state in one write. No separate markUnread() call
       // needed for this path.
       WhatsApp_Unread: true,
-      Last_WhatsApp_Message: new Date().toISOString()
+      Last_WhatsApp_Message: zohoDateTime(new Date())
     }],
     duplicate_check_fields: ['Phone'],
     trigger: []
