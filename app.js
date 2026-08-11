@@ -720,6 +720,26 @@ ZOHO.CRM.API.updateRecord({Entity:entity,APIData:{id:rec.id,WhatsApp_Unread:fals
 showDebug('clear WhatsApp_Unread FAILED: ' + (err && err.message));
 });
 }
+// Same "read" signal also closes any open "reply to WhatsApp message"
+// Tasks this record has (see crmLeads.js createReplyTask()) - opening the
+// chat means an agent is already on it, so the reminder has done its job.
+// Matched by subject prefix rather than closing every open Task on the
+// record, so this never touches something an agent added by hand for an
+// unrelated reason.
+if(rec && rec.id){
+ZOHO.CRM.API.getRelatedRecords({Entity:entity,RecordID:rec.id,RelatedList:'Tasks'}).then(function(taskRes){
+var tasks=(taskRes && taskRes.data)||[];
+tasks.forEach(function(t){
+if(t.Status!=='Completed' && t.Subject && t.Subject.indexOf('Reply to WhatsApp message')===0){
+ZOHO.CRM.API.updateRecord({Entity:'Tasks',APIData:{id:t.id,Status:'Completed'}}).catch(function(err){
+showDebug('close reply Task FAILED: ' + (err && err.message));
+});
+}
+});
+}).catch(function(err){
+showDebug('getRelatedRecords Tasks FAILED: ' + (err && err.message));
+});
+}
 }).catch(function(){});
 });
 function showDebug(text){
