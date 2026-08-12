@@ -152,6 +152,12 @@ node = document.createElement('img');
 node.src = msg.mediaUrl;
 node.alt = 'Image attachment';
 node.loading = 'lazy';
+// Thumbnails are capped in CSS so a photo can't dominate the panel, so
+// there has to be a way to see the full-size original - the zoom-in
+// cursor has always implied one existed. Opens in a new tab rather than
+// building a lightbox, which would have to fight the iframe's bounds.
+node.title = 'Open full size';
+node.addEventListener('click', function(){ window.open(msg.mediaUrl, '_blank', 'noopener'); });
 } else if(kind === 'video'){
 node = document.createElement('video');
 node.src = msg.mediaUrl;

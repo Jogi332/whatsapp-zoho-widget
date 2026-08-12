@@ -9,14 +9,14 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
    keeps the dragDepth counter in app.js correct. */
 #dropOverlay{display:none;position:absolute;inset:0;z-index:50;background:rgba(37,211,102,0.12);border:3px dashed #25D366;align-items:center;justify-content:center;font-size:18px;font-weight:600;color:#128C7E;text-align:center;padding:20px;pointer-events:none;}
 #dropOverlay.active{display:flex;}
-#brandHeader{display:flex;align-items:center;gap:12px;padding:14px 16px;background:linear-gradient(135deg,#075E54,#0b7d6f);color:#fff;flex:0 0 auto;cursor:pointer;transition:padding 0.15s ease;box-shadow:0 2px 6px rgba(0,0,0,0.18);position:relative;z-index:1;}
-#brandHeader.collapsed{padding:8px 16px;}
-#brandLogo{height:42px;width:42px;object-fit:contain;border-radius:10px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);transition:height 0.15s ease,width 0.15s ease,opacity 0.15s ease,margin 0.15s ease;}
+#brandHeader{display:flex;align-items:center;gap:9px;padding:7px 14px;background:linear-gradient(135deg,#075E54,#0b7d6f);color:#fff;flex:0 0 auto;cursor:pointer;transition:padding 0.15s ease;box-shadow:0 2px 6px rgba(0,0,0,0.18);position:relative;z-index:1;}
+#brandHeader.collapsed{padding:5px 14px;}
+#brandLogo{height:26px;width:26px;object-fit:contain;border-radius:10px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);transition:height 0.15s ease,width 0.15s ease,opacity 0.15s ease,margin 0.15s ease;}
 #brandHeader.collapsed #brandLogo{height:0;width:0;opacity:0;margin:0;box-shadow:none;}
 #brandText{display:flex;flex-direction:column;gap:1px;min-width:0;}
-#brandName{font-size:20px;font-weight:bold;letter-spacing:0.3px;line-height:1.15;transition:font-size 0.15s ease;}
-#brandHeader.collapsed #brandName{font-size:14px;}
-#brandTagline{font-size:11px;font-weight:normal;color:rgba(255,255,255,0.75);letter-spacing:0.2px;overflow:hidden;max-height:14px;transition:max-height 0.15s ease,opacity 0.15s ease;}
+#brandName{font-size:14px;font-weight:bold;letter-spacing:0.3px;line-height:1.15;transition:font-size 0.15s ease;}
+#brandHeader.collapsed #brandName{font-size:12px;}
+#brandTagline{font-size:10px;font-weight:normal;color:rgba(255,255,255,0.75);letter-spacing:0.2px;overflow:hidden;max-height:14px;transition:max-height 0.15s ease,opacity 0.15s ease;}
 #brandHeader.collapsed #brandTagline{max-height:0;opacity:0;}
 #brandToggle{margin-left:auto;font-size:11px;opacity:0.85;transition:transform 0.15s ease;}
 #brandHeader.collapsed #brandToggle{transform:rotate(-90deg);}
@@ -28,9 +28,14 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
 /* Media inside a bubble. max-width:100% keeps a large image from forcing the
    bubble (and the page) wider than the viewport on a phone. */
 .bubble-media{display:block;max-width:100%;border-radius:6px;}
-.bubble-media-image{cursor:zoom-in;}
-.bubble-media-video{width:100%;}
-.bubble-media-audio{width:100%;min-width:180px;}
+/* A media bubble is sized by its content, and .bubble's 70% cap is ~700px on
+   a full-width CRM record page - so an inbound photo would render enormous.
+   These absolute caps keep it to a WhatsApp-like thumbnail; click opens the
+   full-size original in a new tab. height/width auto preserves aspect ratio
+   (no cropping). */
+.bubble-media-image{cursor:zoom-in;max-width:260px;max-height:300px;width:auto;height:auto;}
+.bubble-media-video{max-width:260px;max-height:300px;width:auto;height:auto;}
+.bubble-media-audio{width:250px;min-width:180px;}
 .bubble-media-file,.bubble-media-failed,.bubble-media-document{display:inline-block;color:#075E54;text-decoration:underline;font-size:13px;word-break:break-all;}
 .bubble-media-failed{color:#c33;}
 /* Agent joined/left notices - not a message from either side, so not a bubble. */
