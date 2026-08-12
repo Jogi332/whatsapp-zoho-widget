@@ -418,7 +418,9 @@ if(isInitial && list.length){ var lastOut = list.slice().reverse().find(function
 // text "User uploaded <file> - [<mime>]", so the real media field is one
 // extractMediaUrl() doesn't check. Dump the whole raw object for the most
 // recent such message to find out which field actually carries the URL.
-if(isInitial && list.length){ var lastMedia = list.slice().reverse().find(function(m){ return /^User uploaded /.test(String(m.response||'')) || (m.message_type && !/^(TEXT|AGENT_PARTICIPATION_STATUS)$/i.test(String(m.message_type))); }); if(lastMedia){ showDebug('FULL raw MEDIA message: ' + JSON.stringify(lastMedia)); console.log('[Whatsyoo] FULL raw MEDIA message:', JSON.stringify(lastMedia)); } }
+// Logged on EVERY poll, not just the initial one, so it stays in the last
+// few lines of the debug pane instead of scrolling out of reach.
+if(list.length){ var lastMedia = list.slice().reverse().find(function(m){ return /^User uploaded /.test(String(m.response||'')) || (m.message_type && !/^(TEXT|AGENT_PARTICIPATION_STATUS)$/i.test(String(m.message_type))); }); if(lastMedia){ showDebug('FULL raw MEDIA message: ' + JSON.stringify(lastMedia)); console.log('[Whatsyoo] FULL raw MEDIA message:', JSON.stringify(lastMedia)); } }
 var mapped = list.map(function(m){
 var display = toDisplayMessage(m);
 display.user_id = m.user_id || null;
