@@ -32,7 +32,18 @@ var msg = (parsed && parsed.PARTICIPATION_MESSAGE) || '';
 return msg ? String(msg).replace(/<[^>]*>/g, '').trim() : '';
 }
 
-function mediaKindFor(url, messageType){
+function mediaKindFor(url, messageType, mime){
+// The MIME type Engati sends alongside the file is the most reliable signal
+// and is checked first: inbound media all arrives as message_type
+// FILE_RECEIVED regardless of kind, and the URL's extension can be mangled
+// by their storage layer ("...jpeg-NUBM6.jpeg"). messageType and the
+// extension stay as fallbacks for outbound/echoed messages, which do carry
+// a real IMAGE/VIDEO/AUDIO/DOCUMENT type.
+var mt = String(mime || '').toLowerCase().split(';')[0].trim();
+if(mt.indexOf('image/') === 0) return 'image';
+if(mt.indexOf('video/') === 0) return 'video';
+if(mt.indexOf('audio/') === 0) return 'audio';
+if(mt.indexOf('application/') === 0 || mt.indexOf('text/') === 0) return 'document';
 var t = String(messageType || '').toUpperCase();
 if(t === 'IMAGE' || t === 'VIDEO' || t === 'AUDIO'){ return t.toLowerCase(); }
 if(t === 'DOCUMENT'){ return 'document'; }
@@ -44,25 +55,55 @@ if(/\.pdf$/.test(u)) return 'document';
 return 'file';
 }
 
-// Engati doesn't document how media comes back from /conversations, and the
-// test conversation contains no media messages yet, so every plausible field
-// is checked rather than guessing one. Anything unexpected is logged so the
-// real shape can be confirmed the first time a customer sends a photo.
-function extractMediaUrl(m){
-var direct = m.file || (m.media && m.media.value) || null;
-if(typeof direct === 'string' && direct) return direct;
+// Confirmed against a real inbound WhatsApp photo (Aug 12): Engati's
+// /conversations returns media as message_type FILE_RECEIVED with the real
+// URL nested in a `file` OBJECT - {url, mimeType, uploadType} - while
+// `response` carries only a placeholder sentence ("User uploaded <name> -
+// [<mime>]") and `attachments` is null.
+//
+// The original version treated `m.file` as a string, so an object fell
+// through to `attachments`, found null, and returned null before ever
+// reaching the "unrecognised shape" log below. That silent path is why every
+// inbound photo rendered as the placeholder text instead of an image, with
+// nothing in the debug log to explain it. The string/array shapes are kept
+// as fallbacks - they cost nothing and were never disproved.
+//
+// Returns {url, mime} rather than a bare URL because mimeType is the only
+// reliable way to tell an image from a voice note from a PDF here.
+function extractMedia(m){
+var f = m.file || (m.media && m.media.value) || null;
+if(f && typeof f === 'object'){
+var u = f.url || f.value || f.link || null;
+return u ? { url: u, mime: f.mimeType || f.mime_type || null } : null;
+}
+if(typeof f === 'string' && f){
+return { url: f, mime: (m.media && (m.media.mimeType || m.media.mime_type)) || null };
+}
 var att = m.attachments;
 if(!att) return null;
-if(typeof att === 'string') return att;
+if(typeof att === 'string') return { url: att, mime: null };
 if(Array.isArray(att) && att.length){
 var first = att[0];
-if(typeof first === 'string') return first;
-if(first && typeof first === 'object'){ return first.url || first.value || first.link || null; }
+if(typeof first === 'string') return { url: first, mime: null };
+if(first && typeof first === 'object'){
+var fu = first.url || first.value || first.link;
+return fu ? { url: fu, mime: first.mimeType || first.mime_type || null } : null;
 }
-if(typeof att === 'object'){ return att.url || att.value || att.link || null; }
-showDebug('extractMediaUrl: unrecognised attachment shape: ' + JSON.stringify(att).slice(0, 300));
+}
+if(typeof att === 'object'){
+var au = att.url || att.value || att.link;
+if(au) return { url: au, mime: att.mimeType || att.mime_type || null };
+}
+showDebug('extractMedia: unrecognised attachment shape: ' + JSON.stringify(att).slice(0, 300));
 return null;
 }
+
+// Engati's placeholder text for an inbound file, e.g.
+// "User uploaded invoice.pdf - [application/pdf]". Not something the
+// customer typed, so it must never be shown as a caption under the media -
+// but the filename inside it is the only human-readable name we get, and
+// it's what the document renderer labels its link with.
+var UPLOAD_PLACEHOLDER_RE = /^User uploaded\s+(.*?)\s+-\s+\[[^\]]*\]\s*$/;
 
 // Turns one raw Engati message into what the UI needs to draw it.
 function toDisplayMessage(m){
@@ -79,13 +120,23 @@ base.kind = 'system';
 base.text = participationText(m.response);
 return base;
 }
-var mediaUrl = extractMediaUrl(m);
-if(mediaUrl){
+var media = extractMedia(m);
+if(media){
 base.kind = 'media';
-base.mediaUrl = mediaUrl;
-base.mediaKind = mediaKindFor(mediaUrl, type);
-// Media messages can carry a caption alongside the file.
-base.text = (typeof m.response === 'string' && m.response !== mediaUrl) ? m.response : '';
+base.mediaUrl = media.url;
+base.mediaKind = mediaKindFor(media.url, type, media.mime);
+// Media messages can carry a real caption alongside the file, but on an
+// inbound FILE_RECEIVED `response` is Engati's own placeholder - showing
+// that would just repeat the filename under the image. Strip it, and reuse
+// the filename it contains to label document links.
+var caption = (typeof m.response === 'string' && m.response !== media.url) ? m.response : '';
+var placeholder = UPLOAD_PLACEHOLDER_RE.exec(caption);
+if(placeholder){
+base.mediaFilename = placeholder[1] || '';
+base.text = '';
+} else {
+base.text = caption;
+}
 return base;
 }
 base.kind = 'text';
@@ -414,13 +465,6 @@ var body = data.body || data.details || data;
 var bodyParsed = safeParse(body) || body;
 var list = (bodyParsed && (bodyParsed.conversations || bodyParsed.messages)) || data.conversations || data.messages || []; showDebug('fetchConversation: server list.length='+list.length+' status_code='+data.status_code);
 if(isInitial && list.length){ var lastOut = list.slice().reverse().find(function(m){ return m.sender==='bot'; }); if(lastOut){ showDebug('FULL raw bot message keys: ' + JSON.stringify(lastOut)); console.log('[Whatsyoo] FULL raw bot message keys:', JSON.stringify(lastOut)); } }
-// Temporary diagnostic: /conversations renders inbound media as the literal
-// text "User uploaded <file> - [<mime>]", so the real media field is one
-// extractMediaUrl() doesn't check. Dump the whole raw object for the most
-// recent such message to find out which field actually carries the URL.
-// Logged on EVERY poll, not just the initial one, so it stays in the last
-// few lines of the debug pane instead of scrolling out of reach.
-if(list.length){ var lastMedia = list.slice().reverse().find(function(m){ return /^User uploaded /.test(String(m.response||'')) || (m.message_type && !/^(TEXT|AGENT_PARTICIPATION_STATUS)$/i.test(String(m.message_type))); }); if(lastMedia){ showDebug('FULL raw MEDIA message: ' + JSON.stringify(lastMedia)); console.log('[Whatsyoo] FULL raw MEDIA message:', JSON.stringify(lastMedia)); } }
 var mapped = list.map(function(m){
 var display = toDisplayMessage(m);
 display.user_id = m.user_id || null;
