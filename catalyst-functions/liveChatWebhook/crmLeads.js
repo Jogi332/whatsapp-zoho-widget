@@ -239,6 +239,52 @@ async function createReplyTask(token, leadId) {
   if (!(created && created.code === 'SUCCESS')) {
     console.error('[crmLeads] createReplyTask failed for Lead ' + leadId + ': ' + String(createRes.body).slice(0, 300));
   }
+
+  await notifySignal(token, leadId, leadName);
+}
+
+// Must match a Signal created by hand in Setup > Experience Center >
+// Signals, with "Trigger Signal via: API" - Zoho auto-generates this from
+// the Label/Service entered there, this isn't something this code can
+// create itself. See zoho-signals-research memory note for the full setup
+// and the OAuth scope history (needs ZohoCRM.signals.ALL on top of the
+// Leads/Tasks scopes createReplyTask above needs).
+const SIGNAL_NAMESPACE = 'whatsyoo_newwhatsappmessage';
+
+// Fires a Zoho Signal (the bell-icon notification) so an agent sees this
+// even in a CRM tab that's already open - createReplyTask() above is fast
+// (same-second) but a tab that's already open has no way to know a Task
+// was created elsewhere; that's a genuine Zoho web-app limitation, not
+// something this codebase can influence. Signals is Zoho's own answer to
+// that specific gap. Never throws - a Signals failure (e.g. missing scope,
+// or the Signal not yet existing in a customer's org) must not break Lead
+// sync or Task creation, which both already succeeded by this point.
+async function notifySignal(token, leadId, leadName) {
+  // Confirmed by a real failing call (Aug 12 2026): a flat payload gets
+  // {"code":"MANDATORY_NOT_FOUND","details":{"api_name":"signals"}} -
+  // same "wrap in a named array" convention Zoho uses for /Leads and
+  // /Tasks ("data": [...]), just with "signals" as the key here instead.
+  const payload = JSON.stringify({
+    signals: [{
+      signal_namespace: SIGNAL_NAMESPACE,
+      subject: 'New WhatsApp message',
+      message: leadName + ' sent a new WhatsApp message.',
+      id: leadId
+    }]
+  });
+  const res = await requestJson({
+    hostname: apiHost(),
+    path: '/crm/v2/signals/notifications',
+    method: 'POST',
+    headers: {
+      'Authorization': 'Zoho-oauthtoken ' + token,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  }, payload);
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    console.error('[crmLeads] notifySignal failed for Lead ' + leadId + ': ' + res.statusCode + ' ' + String(res.body).slice(0, 300));
+  }
 }
 
 // Sets the two fields that let agents see "new message" from the Leads
