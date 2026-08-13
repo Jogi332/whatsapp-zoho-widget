@@ -51,6 +51,8 @@
 // template sending too. Don't assume it's already multi-tenant.
 
 const https = require('https');
+// Needed only by the getStatusPackets read path below (Data Store access).
+const catalyst = require('zcatalyst-sdk-node');
 
 function readBody(req) {
   return new Promise(function (resolve) {
@@ -132,6 +134,69 @@ module.exports = function (req, res) {
     var botKey = input.botKey;
     var botIdentifier = input.botIdentifier;
     var inboundApiKey = input.inboundApiKey || '';
+
+    // Read-only: recent delivery-failure packets for one user.
+    //
+    // Handled here rather than in a new function because a freshly-deployed
+    // Catalyst function 404s until it's manually given an API Gateway route,
+    // per environment (see SETUP.md) - and rather than in liveChatWebhook
+    // because that one has no CORS headers (Engati calls it server-side, the
+    // browser never does). This function is already widget-facing and
+    // already CORS-correct, so it's the cheapest correct home.
+    //
+    // Returns FAILED status packets only. Deliberately placed above the
+    // send-path required-field checks below: reading statuses needs nothing
+    // but a phone number.
+    if (action === 'getStatusPackets') {
+      if (!phone) {
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({ statusCode: 400, body: JSON.stringify({ error: 'phone required' }) }));
+        return;
+      }
+      var sinceMs = Number(input.sinceMs) || 0;
+      var app = catalyst.initialize(req);
+      // ZCQL has no parameter binding, so the phone is whitelisted to digits
+      // before interpolation - it's a channel-user id, never anything else.
+      var safePhone = String(phone).replace(/[^0-9]/g, '');
+      app.zcql().executeZCQLQuery(
+        "SELECT text_value, message_type, received_at, raw_payload FROM LiveChatEvents" +
+        " WHERE packet_type = 'STATUS_PACKET' AND user_id = '" + safePhone + "'" +
+        " ORDER BY CREATEDTIME DESC LIMIT 50"
+      ).then(function (rows) {
+        var out = (rows || []).map(function (r) {
+          var v = r.LiveChatEvents || {};
+          // text_value is "<code>: <description>" for packets stored after
+          // the Aug 13 externalPacketType fix. Older rows have it blank
+          // because the code was being discarded, so fall back to digging
+          // the values out of raw_payload - otherwise every historic failure
+          // would silently render as "unknown".
+          var code = null, description = null, status = v.message_type || null;
+          var m = /^(\d+):\s*(.*)$/.exec(v.text_value || '');
+          if (m) { code = Number(m[1]); description = m[2]; }
+          var ts = null;
+          try {
+            var rp = JSON.parse(v.raw_payload || '{}');
+            var b = rp.body || {};
+            if (code === null && b.code != null) { code = Number(b.code); description = b.description || null; }
+            if (!status && b.status) { status = b.status; }
+            if (b.timestamp) { ts = Date.parse(b.timestamp) || null; }
+          } catch (e) { /* raw_payload is truncated at 5000 chars - ignore */ }
+          if (!ts && v.received_at) { ts = Date.parse(v.received_at) || null; }
+          return { code: code, description: description, status: status, ts: ts };
+        }).filter(function (s) {
+          return s.ts && s.status !== 'SUCCESS' && s.ts >= sinceMs;
+        });
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({ statusCode: 200, body: JSON.stringify({ statuses: out }) }));
+      }).catch(function (e) {
+        // Never fail the widget over this - it's a diagnostic overlay on top
+        // of a conversation that renders fine without it.
+        console.error('[liveChatSender] getStatusPackets failed: ' + (e && e.message));
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({ statusCode: 200, body: JSON.stringify({ statuses: [] }) }));
+      });
+      return;
+    }
 
     if (!inboundMessageWebhookUrl) {
       res.writeHead(200, headers);

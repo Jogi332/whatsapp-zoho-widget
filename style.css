@@ -43,6 +43,10 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
 .bubble-time{font-size:10px;color:#8c8c8c;text-align:right;margin-top:4px;}
 .ticks{color:#8c8c8c;}
 .ticks.read{color:#53bdeb;}
+/* Real delivery failure, reported by an Engati STATUS_PACKET. This is the
+   only authoritative delivery signal the integration has - a tick means
+   "Engati accepted the packet", nothing more - so it is deliberately loud. */
+.ticks.failed{color:#c33;font-weight:bold;cursor:help;}
 .status{color:#667781;text-align:center;margin-top:20px;font-size:13px;padding:0 10px;word-break:break-word;}
 #composer{display:flex;flex-direction:column;padding:8px;background:#f0f0f0;border-top:1px solid #ddd;gap:6px;}
 #composerRow{display:flex;align-items:flex-end;}

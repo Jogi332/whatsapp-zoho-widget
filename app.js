@@ -234,22 +234,33 @@ if(m.time){
 var timeEl=document.createElement('div');
 timeEl.className='bubble-time';
 var tickEl=document.createElement('span');
+// Honest status marker, outbound messages only. A "success" response from
+// Engati's API (or the message appearing in their Conversation History)
+// does NOT mean WhatsApp delivered it - proven on Aug 13 2026, when two
+// sends each returned HTTP 200 with a real messageId and both came back as
+// STATUS_PACKET code 1002 FAILED. So a tick here only ever means "Engati
+// accepted the packet", never "the customer got it".
+//
+// What IS authoritative is a STATUS_PACKET, which arrives asynchronously on
+// our webhook and is surfaced by attachDeliveryFailures() below. When one
+// matches this message, the tick is replaced by a red \u2717 carrying Engati's
+// own code and description - the only real delivery signal this integration
+// has.
+if(m.failure){
+tickEl.className='ticks failed';
+tickEl.textContent=' \u2717';
+tickEl.title='NOT delivered - Engati reported '
++ (m.failure.code ? m.failure.code + ': ' : '')
++ (m.failure.description || 'delivery failed')
++ (m.failure.code === 1002 ? '\n\nThe 24-hour WhatsApp window has closed. Only template messages can be sent until the customer replies.' : '');
+} else {
 tickEl.className='ticks'+(m.status==='read'?' read':'');
 tickEl.textContent=(m.status==='sent'?' \u2713':' \u2713\u2713');
-// Honest tooltip on the tick, outbound messages only - this whole
-// project's Engati investigation proved repeatedly that a "success"
-// response from their API (or a message showing up in their Conversation
-// History) does NOT mean WhatsApp actually delivered it - Engati's own
-// STATUS_PACKET mechanism, meant to signal real outcomes, has never once
-// fired in any test. Without this, the double-tick looks exactly like
-// WhatsApp's own "delivered to phone" tick and implies a guarantee this
-// pipeline cannot actually back up. See workdrive-attachment-research
-// and engati-status-packet-is-synchronous persistent notes for the full
-// investigation this is based on.
 if(m.direction === 'out'){
 tickEl.title = (m.status==='sent')
 ? 'Sent to Engati - not yet confirmed received'
-: 'Confirmed received by Engati - WhatsApp delivery status is not available through this integration';
+: 'Accepted by Engati. This is NOT delivery confirmation - WhatsApp delivery is only reported when it FAILS, via a status packet.';
+}
 }
 timeEl.textContent=m.time;
 timeEl.appendChild(tickEl);
@@ -294,7 +305,14 @@ return digits;
 var pollTimer = null;
 var lastSignature = null;
 var POLL_INTERVAL_MS = 2000;
+var failureTimer = null;
+// Status packets land seconds after a send and are then immutable, so this
+// polls the Data Store much less aggressively than the 2s conversation poll.
+var FAILURE_POLL_INTERVAL_MS = 15000;
 var currentPhone = null;var lastMappedMessages = [];var localSentMessages = [];
+// Delivery failures from Engati STATUS_PACKETs, newest-first. Populated by
+// fetchDeliveryFailures(); consumed by attachDeliveryFailures().
+var deliveryFailures = [];
 // CORRECTED Aug 9, 2026: an earlier version of this preferred a UUID
 // captured from /conversations, on the theory that AGENT_MESSAGE had to
 // address Engati's "internal" id. That was wrong. Inspecting the real
@@ -452,7 +470,56 @@ return true;
 });
 }
 
-function renderMerged(isInitial){ localSentMessages = dropConfirmedLocalEchoes(localSentMessages, lastMappedMessages); var merged = lastMappedMessages.concat(localSentMessages).sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); var signature2 = JSON.stringify(merged); showDebug('renderMerged: mapped='+lastMappedMessages.length+' local='+localSentMessages.length+' merged='+merged.length+' sigChanged='+(signature2!==lastSignature)); if(signature2 === lastSignature){ return; } var el2 = document.getElementById('messages'); var wasNearBottom2 = isInitial || isNearBottom(el2); lastSignature = signature2; renderMessages(merged); if(!wasNearBottom2){ el2.scrollTop = el2.scrollHeight - el2.clientHeight - 60; } } function isNearBottom(el){
+// Engati's STATUS_PACKET carries NO message id - the real captured packet has
+// "messageAckId":null - so a failure cannot be correlated to a specific
+// message the way a normal delivery receipt would be. All it gives is a user
+// and a timestamp.
+//
+// So this matches each failure to the nearest preceding outbound message,
+// within a window. That is a heuristic, and it is the best the data allows;
+// the window keeps it from silently blaming an unrelated older message when
+// a failure arrives with nothing near it. Failures are applied newest-first
+// and each message is claimed at most once, so two failures can't collapse
+// onto the same bubble.
+var MAX_FAILURE_MATCH_MS = 5 * 60 * 1000;
+function attachDeliveryFailures(messages, failures){
+messages.forEach(function(m){ m.failure = null; });
+if(!failures || !failures.length) return messages;
+var outbound = messages.filter(function(m){ return m.direction === 'out' && m.ts; })
+.sort(function(a,b){ return b.ts - a.ts; });
+failures.slice().sort(function(a,b){ return b.ts - a.ts; }).forEach(function(f){
+for(var i = 0; i < outbound.length; i++){
+var m = outbound[i];
+if(m.failure) continue;
+if(m.ts <= f.ts && (f.ts - m.ts) <= MAX_FAILURE_MATCH_MS){ m.failure = f; return; }
+}
+});
+return messages;
+}
+
+// Polls the STATUS_PACKETs our webhook stored for this user. Failure is
+// non-fatal by design: this is an overlay on a conversation that renders
+// fine without it, so any error just leaves the ticks as they were.
+function fetchDeliveryFailures(phone){
+if(!LIVE_CHAT_SENDER_PROXY_URL || !phone){ return Promise.resolve(); }
+return fetch(LIVE_CHAT_SENDER_PROXY_URL, {
+method: 'POST',
+// text/plain to stay a CORS "simple request" - see sendFreeTextMessage().
+headers: { 'Content-Type': 'text/plain' },
+body: JSON.stringify({ action: 'getStatusPackets', phone: phone })
+}).then(function(r){ return r.text(); }).then(function(raw){
+var outer = safeParse(raw);
+var inner = outer && safeParse(outer.body);
+var list = (inner && inner.statuses) || [];
+deliveryFailures = list.filter(function(s){ return s && s.ts; });
+showDebug('fetchDeliveryFailures: ' + deliveryFailures.length + ' failure packet(s)');
+renderMerged(false);
+}).catch(function(e){
+showDebug('fetchDeliveryFailures failed (non-fatal): ' + (e && e.message));
+});
+}
+
+function renderMerged(isInitial){ localSentMessages = dropConfirmedLocalEchoes(localSentMessages, lastMappedMessages); var merged = lastMappedMessages.concat(localSentMessages).sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); attachDeliveryFailures(merged, deliveryFailures); var signature2 = JSON.stringify(merged); showDebug('renderMerged: mapped='+lastMappedMessages.length+' local='+localSentMessages.length+' merged='+merged.length+' sigChanged='+(signature2!==lastSignature)); if(signature2 === lastSignature){ return; } var el2 = document.getElementById('messages'); var wasNearBottom2 = isInitial || isNearBottom(el2); lastSignature = signature2; renderMessages(merged); if(!wasNearBottom2){ el2.scrollTop = el2.scrollHeight - el2.clientHeight - 60; } } function isNearBottom(el){
 return (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
 }
 
@@ -539,9 +606,19 @@ phone = normalizePhone(phone);
 updateCountryCodeBanner(rawPhone, phone);
 currentPhone = phone;
 if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
+// Cleared alongside pollTimer so re-initialising on a different record can't
+// leave a second interval running against the previous phone number.
+if(failureTimer){ clearInterval(failureTimer); failureTimer = null; }
+deliveryFailures = [];
 fetchConversation(phone, true).then(function(){
 pollTimer = setInterval(function(){ fetchConversation(phone, false); }, POLL_INTERVAL_MS);
 });
+// Status packets arrive seconds after a send and then don't change, so this
+// polls far more slowly than the conversation itself - no need to hit the
+// Data Store every 2s. Also fired right after each send (see below), which
+// is when a new failure is actually likely to appear.
+fetchDeliveryFailures(phone);
+failureTimer = setInterval(function(){ fetchDeliveryFailures(phone); }, FAILURE_POLL_INTERVAL_MS);
 }
 
 // NOTE: /broadcast (the old direct-to-Engati free-text call) is permanently
@@ -1336,7 +1413,12 @@ resumePolling();
 if(failed){
 return;
 }
-localSentMessages.push({ direction:'out', kind: media ? 'media' : 'text', mediaUrl: media ? media.value : null, mediaKind: media ? mediaKindFor(media.value, attachType) : null, text: text || '', time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('sendBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); input.value=''; input.style.height='auto';
+localSentMessages.push({ direction:'out', kind: media ? 'media' : 'text', mediaUrl: media ? media.value : null, mediaKind: media ? mediaKindFor(media.value, attachType) : null, text: text || '', time: formatTimestamp(new Date()), ts: Date.now(), status: 'sent' }); showDebug('sendBtn: pushed local message, count='+localSentMessages.length); renderMerged(false); // A failure packet for THIS send lands a few seconds later, so re-check
+// sooner than the 15s poll would - this is the moment a red x is most
+// likely to be needed, and waiting a full cycle looks like it worked.
+setTimeout(function(){ fetchDeliveryFailures(currentPhone); }, 4000);
+setTimeout(function(){ fetchDeliveryFailures(currentPhone); }, 12000);
+input.value=''; input.style.height='auto';
 attachUrlInput.value=''; document.getElementById('attachRow').classList.remove('open'); document.getElementById('attachToggleBtn').classList.remove('active');
 lastUploadedAttachment = null;
 fetchConversation(currentPhone, false);
