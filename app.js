@@ -858,42 +858,198 @@ row.classList.toggle('open');
 this.classList.toggle('active');
 });
 
-// Emoji picker - a small curated set rather than a full library, since
-// this project deliberately avoids npm/CDN dependencies (see file header
-// conventions elsewhere) and a WhatsApp composer doesn't need the full
-// Unicode emoji range, just the common chat ones.
-var EMOJI_LIST = [
-// Jewellery / gifting - listed first since this deployment is for a
-// jewellery shop, so these are the most likely to actually get used.
-'💍','💎','👑','✨','🌟','💫','🎀','🎁','🛍️','👛','👜','📿','⌚','💐','🌹','🥂','👰','🤵','💒','🏷️',
-// Faces / emotions
-'😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😙','😚','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀',
-// Hands / gestures
-'👍','👎','👏','🙌','🙏','🤝','👊','✊','🤛','🤜','🤞','✌️','🤟','🤘','👌','🤌','👋','🤙','💪','🖐️','✋','👆','👇','👈','👉',
-// Hearts / symbols
-'❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','🔥','⭐','🌟','✨','💯','💢','💥','💫','💦','💨','🕳️','💬','💭','🎉','🎊',
-// Status / common reactions
-'✅','❌','❗','❓','⚠️','🚫','🔴','🟢','🟡','🔵','⚡','💤',
-// Everyday objects (support/business relevant)
-'📞','📱','📧','📩','📎','📅','⏰','⏳','💰','💵','💳','🎁','📦','✏️','📝','📌','🔒','🔑','🛒','🏠','🚗','✈️'
-];
+// Emoji picker - the FULL Unicode emoji set (see emoji-data.js, generated
+// from Unicode's own emoji-test.txt), not a curated subset. Still zero
+// npm/CDN dependencies, in keeping with the rest of this project: the data
+// is a plain generated .js file served from the same GitHub Pages origin.
+//
+// 1900 glyphs are unusable as one flat grid, so the panel gets a category
+// tab strip and a name search box. A "Recent" tab (localStorage) replaces
+// what used to be a hardcoded jewellery-first block - it adapts to whatever
+// each customer actually sends, which also makes the picker multi-tenant
+// safe instead of biased toward this one deployment.
+var EMOJI_RECENT_KEY = 'whatsyoo.emoji.recent';
+var EMOJI_RECENT_MAX = 32;
+var EMOJI_TONE_KEY = 'whatsyoo.emoji.tone';
+
+// Applies a skin tone via the verified template map (see emoji-data.js).
+// A template like "🧑*‍🤝‍🧑*" marks every spot a modifier goes, so
+// multi-person emoji tone all their people and nothing else. Anything with
+// no template - objects, animals, flags, and person emoji that don't take
+// tones - is returned unchanged, which makes this safe to run over a whole
+// grid indiscriminately.
+var emojiToneMap = null;
+function emojiApplyTone(ch, tone){
+if(!tone || typeof EMOJI_TONE_TEMPLATES_RAW === 'undefined') return ch;
+if(!emojiToneMap){
+emojiToneMap = {};
+EMOJI_TONE_TEMPLATES_RAW.split('|').forEach(function(entry){
+var sp = entry.indexOf(' ');
+emojiToneMap[entry.slice(0, sp)] = entry.slice(sp + 1);
+});
+}
+var tmpl = emojiToneMap[ch];
+return tmpl ? tmpl.split('*').join(tone) : ch;
+}
+
+function emojiLoadRecent(){
+try{
+var raw = window.localStorage.getItem(EMOJI_RECENT_KEY);
+var arr = raw ? JSON.parse(raw) : [];
+return Array.isArray(arr) ? arr.filter(function(x){ return typeof x === 'string' && x; }) : [];
+}catch(e){ return []; }  // private-mode / blocked storage must not break the picker
+}
+
+function emojiRememberRecent(ch){
+try{
+var list = emojiLoadRecent().filter(function(x){ return x !== ch; });
+list.unshift(ch);
+window.localStorage.setItem(EMOJI_RECENT_KEY, JSON.stringify(list.slice(0, EMOJI_RECENT_MAX)));
+}catch(e){}
+}
+
+// Parses one group's packed "<emoji> <name>|..." blob into [{ch,name}].
+// Done lazily per group so opening the picker doesn't parse all 1900 up
+// front - only the visible tab (and any tab actually clicked) is expanded.
+function emojiParseGroup(group){
+if(group.parsed) return group.parsed;
+group.parsed = group.data.split('|').map(function(entry){
+var sp = entry.indexOf(' ');
+return { ch: entry.slice(0, sp), name: entry.slice(sp + 1) };
+});
+return group.parsed;
+}
+
 (function(){
 var panel = document.getElementById('emojiPanel');
-EMOJI_LIST.forEach(function(emoji){
-var btn = document.createElement('button');
-btn.type = 'button';
-btn.textContent = emoji;
-btn.addEventListener('click', function(){
+if(!panel || typeof EMOJI_GROUPS === 'undefined') return;
+
+var currentTone = '';
+try{ currentTone = window.localStorage.getItem(EMOJI_TONE_KEY) || ''; }catch(e){}
+
+var topRow = document.createElement('div'); topRow.id = 'emojiTopRow';
+var search = document.createElement('input');
+search.id = 'emojiSearch';
+search.type = 'text';
+search.placeholder = 'Search emoji';
+var toneWrap = document.createElement('div'); toneWrap.id = 'emojiTones';
+topRow.appendChild(search); topRow.appendChild(toneWrap);
+var tabs = document.createElement('div'); tabs.id = 'emojiTabs';
+var grid = document.createElement('div'); grid.id = 'emojiGrid';
+var empty = document.createElement('div'); empty.id = 'emojiEmpty'; empty.textContent = 'No emoji found';
+empty.style.display = 'none';
+panel.appendChild(topRow); panel.appendChild(tabs); panel.appendChild(grid); panel.appendChild(empty);
+
+function insert(ch){
 var input = document.getElementById('msgInput');
 var start = input.selectionStart == null ? input.value.length : input.selectionStart;
 var end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
-input.value = input.value.slice(0, start) + emoji + input.value.slice(end);
-var caret = start + emoji.length;
+input.value = input.value.slice(0, start) + ch + input.value.slice(end);
+var caret = start + ch.length;
 input.focus();
 input.setSelectionRange(caret, caret);
+// Auto-grow matches the composer's own input handler - inserting an emoji
+// changes the content height just like typing does.
+input.style.height = 'auto';
+input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+emojiRememberRecent(ch);
+}
+
+function renderList(items){
+grid.textContent = '';
+empty.style.display = items.length ? 'none' : '';
+// One DocumentFragment rather than 300+ individual appends - the Objects
+// and Flags groups are large enough for this to be visible.
+var frag = document.createDocumentFragment();
+items.forEach(function(item){
+// Tone is applied at render time so the grid previews exactly what will
+// be inserted - and so changing tone is a re-render, not a data rebuild.
+var shown = emojiApplyTone(item.ch, currentTone);
+var btn = document.createElement('button');
+btn.type = 'button';
+btn.textContent = shown;
+btn.title = item.name;
+btn.addEventListener('click', function(){ insert(shown); });
+frag.appendChild(btn);
 });
-panel.appendChild(btn);
+grid.appendChild(frag);
+}
+
+function refresh(){
+if(search.value.trim()){ search.dispatchEvent(new Event('input')); }
+else if(activeTab){ activeTab.click(); }
+}
+
+// Tone swatches: default (no tone) plus the five Fitzpatrick modifiers,
+// previewed on a hand so the choice is visible rather than abstract.
+['', EMOJI_TONES[0], EMOJI_TONES[1], EMOJI_TONES[2], EMOJI_TONES[3], EMOJI_TONES[4]].forEach(function(tone){
+var sw = document.createElement('button');
+sw.type = 'button';
+sw.textContent = emojiApplyTone('✋', tone);
+sw.title = tone ? 'Skin tone' : 'Default skin tone';
+if(tone === currentTone) sw.classList.add('active');
+sw.addEventListener('click', function(){
+currentTone = tone;
+try{ window.localStorage.setItem(EMOJI_TONE_KEY, tone); }catch(e){}
+Array.prototype.forEach.call(toneWrap.children, function(c){ c.classList.remove('active'); });
+sw.classList.add('active');
+refresh();
 });
+toneWrap.appendChild(sw);
+});
+
+function recentItems(){
+return emojiLoadRecent().map(function(ch){ return { ch: ch, name: 'recently used' }; });
+}
+
+var activeTab = null;
+function selectTab(btn, itemsFn){
+if(activeTab) activeTab.classList.remove('active');
+activeTab = btn; btn.classList.add('active');
+grid.scrollTop = 0;
+renderList(itemsFn());
+}
+
+var recentBtn = document.createElement('button');
+recentBtn.type = 'button'; recentBtn.textContent = '🕘'; recentBtn.title = 'Recently used';
+recentBtn.addEventListener('click', function(){ search.value = ''; selectTab(recentBtn, recentItems); });
+tabs.appendChild(recentBtn);
+
+var firstGroupBtn = null;
+EMOJI_GROUPS.forEach(function(group){
+var btn = document.createElement('button');
+btn.type = 'button'; btn.textContent = group.icon; btn.title = group.label;
+btn.addEventListener('click', function(){
+search.value = '';
+selectTab(btn, function(){ return emojiParseGroup(group); });
+});
+tabs.appendChild(btn);
+if(!firstGroupBtn) firstGroupBtn = btn;
+});
+
+// Search spans every group, so it's the one place all 1900 get parsed.
+search.addEventListener('input', function(){
+var q = search.value.trim().toLowerCase();
+if(!q){
+if(activeTab === recentBtn) selectTab(recentBtn, recentItems);
+else if(activeTab) activeTab.click();
+return;
+}
+if(activeTab){ activeTab.classList.remove('active'); activeTab = null; }
+var hits = [];
+EMOJI_GROUPS.forEach(function(group){
+emojiParseGroup(group).forEach(function(item){
+if(hits.length < 300 && item.name.indexOf(q) !== -1) hits.push(item);
+});
+});
+grid.scrollTop = 0;
+renderList(hits);
+});
+
+// Open on Recent if there's anything there, otherwise Smileys - a
+// first-time user shouldn't be greeted by an empty grid.
+if(recentItems().length) selectTab(recentBtn, recentItems);
+else selectTab(firstGroupBtn, function(){ return emojiParseGroup(EMOJI_GROUPS[0]); });
 })();
 document.getElementById('emojiBtn').addEventListener('click', function(e){
 e.stopPropagation();

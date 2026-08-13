@@ -70,10 +70,29 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#e5ddd5;overflow
    the input itself, not a separate button beside it. */
 #emojiBtn{position:absolute;right:4px;bottom:4px;background:none;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:17px;line-height:1;padding:0;}
 #emojiBtn.active{background:#e8e8e8;}
-#emojiPanel{display:none;position:absolute;bottom:44px;right:0;width:240px;max-height:220px;overflow-y:auto;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:6px;grid-template-columns:repeat(6,1fr);gap:2px;z-index:20;}
-#emojiPanel.open{display:grid;}
-#emojiPanel button{background:none;border:none;font-size:20px;line-height:1;cursor:pointer;padding:4px;border-radius:4px;}
-#emojiPanel button:hover{background:#f0f0f0;}
+/* Emoji picker. Now holds the full ~1900-glyph Unicode set, so the panel is
+   a fixed-height column - search box and category tabs pinned, only the
+   grid scrolls - rather than the old single scrolling grid of ~200. */
+#emojiPanel{display:none;position:absolute;bottom:44px;right:0;width:296px;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:6px;z-index:20;flex-direction:column;gap:6px;}
+#emojiPanel.open{display:flex;}
+#emojiTopRow{display:flex;align-items:center;gap:4px;}
+#emojiSearch{flex:1;min-width:0;box-sizing:border-box;padding:6px 8px;font-size:13px;font-family:inherit;border:1px solid #ccc;border-radius:6px;}
+/* Skin-tone swatches, WhatsApp-style: one hand per Fitzpatrick tone plus a
+   default. Kept beside the search box so the picker stays one column tall. */
+#emojiTones{display:flex;gap:0;flex:0 0 auto;}
+#emojiTones button{background:none;border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px;border-radius:4px;opacity:0.5;}
+#emojiTones button:hover{opacity:1;}
+#emojiTones button.active{opacity:1;background:#e6f4ea;}
+/* Tabs wrap to a second row rather than scrolling sideways - a hidden
+   horizontal strip makes the later categories (Flags, Symbols) easy to miss. */
+#emojiTabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid #eee;padding-bottom:4px;}
+#emojiTabs button{background:none;border:none;font-size:17px;line-height:1;cursor:pointer;padding:4px 5px;border-radius:4px;opacity:0.55;}
+#emojiTabs button:hover{background:#f0f0f0;opacity:1;}
+#emojiTabs button.active{opacity:1;background:#e6f4ea;}
+#emojiGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;max-height:210px;overflow-y:auto;}
+#emojiGrid button{background:none;border:none;font-size:20px;line-height:1;cursor:pointer;padding:4px;border-radius:4px;}
+#emojiGrid button:hover{background:#f0f0f0;}
+#emojiEmpty{font-size:12px;color:#667781;text-align:center;padding:16px 0;}
 /* Text formatting ("Aa") button - same popup-toggle pattern as the emoji
    button, but a small fixed toolbar instead of a grid: Bold/Italic/
    Strikethrough/Monospace, each wrapping the current selection in
