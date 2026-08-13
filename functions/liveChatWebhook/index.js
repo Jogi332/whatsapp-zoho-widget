@@ -11,15 +11,28 @@
 //                     (messageId/errorCode) is just "packet received", NOT
 //                     delivery confirmation - the real outcome (including
 //                     errors like USER_NOT_IN_LIVE_CHAT, code 1004) arrives
-//                     later as a STATUS_PACKET here. Critically, this uses
-//                     "type": "STATUS_PACKET" at the top level, NOT
-//                     "externalPacketType" like the other two event types -
-//                     easy to miss and originally missed entirely (this
-//                     function used to only check body.externalPacketType,
-//                     so STATUS_PACKETs silently fell into the "empty
-//                     validation ping" branch below and were never logged,
-//                     which is exactly why an earlier AGENT_MESSAGE
-//                     delivery failure went undiagnosed).
+//                     later as a STATUS_PACKET here.
+//
+//                     CORRECTION (Aug 13 2026, verified against real
+//                     packets): STATUS_PACKET arrives with
+//                     "externalPacketType":"STATUS_PACKET", the SAME field
+//                     as the other event types. An earlier version of this
+//                     comment claimed it used a top-level "type" instead,
+//                     and the check below was written to match that - so the
+//                     dedicated branch never once fired. Packets still got
+//                     stored by the generic path (packet_type was right),
+//                     but the code/description were DISCARDED, because the
+//                     generic path reads body.packetType/body.text.value,
+//                     which a status packet doesn't have. That is why every
+//                     STATUS_PACKET row in LiveChatEvents has a blank
+//                     text_value. Real observed shape:
+//                       {"externalPacketType":"STATUS_PACKET",
+//                        "body":{"code":1002,
+//                                "description":"User is outside conversation window",
+//                                "status":"FAILED","timestamp":"..."},
+//                        "platform":"dialog360","userId":"...","botKey":"..."}
+//                     Both spellings are accepted below so this can't break
+//                     again if Engati ever does send "type".
 //
 // Contract (from Engati's "External Live Chat V2" developer doc):
 //   - MUST return a 2xx status. Engati validates this endpoint with an
@@ -105,9 +118,12 @@ module.exports = function (req, res) {
     //   return;
     // }
 
-    // STATUS_PACKET uses "type", not "externalPacketType" - check this before
-    // the validation-ping fallback below, or it gets swallowed as a no-op.
-    if (body.type === 'STATUS_PACKET') {
+    // Checked before the validation-ping fallback below, or it gets swallowed
+    // as a no-op. Accepts either spelling: real packets use
+    // externalPacketType (see the correction in the header comment); "type"
+    // is kept only so a future change on Engati's side can't silently
+    // reintroduce the same blank-text_value bug.
+    if (body.externalPacketType === 'STATUS_PACKET' || body.type === 'STATUS_PACKET') {
       var statusBody = body.body || {};
       console.log('[liveChatWebhook] STATUS_PACKET status=' + statusBody.status + ' code=' + statusBody.code + ' description=' + statusBody.description + ' userId=' + (body.userId || '') + ' botKey=' + (body.botKey || ''));
 
